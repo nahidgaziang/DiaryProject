@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List, Menu, Settings } from 'lucide-react';
+import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List, Menu, Settings, ListOrdered, Activity, TrendingUp, BarChart2, Tag, Download, Upload } from 'lucide-react';
 import type { DiaryEntry, MoodType, WeatherType } from './types';
 import { DiaryStorageService } from './utils/storage';
 import { detectLocation, fetchWeather } from './utils/weather';
 import { renderMarkdown, stripMarkdown } from './utils/markdown';
+import JSZip from 'jszip';
+
 
 interface DraftData {
   title: string;
@@ -87,6 +89,535 @@ const getEntryAccentColor = (cardColor?: string): string => {
   return cardColor;
 };
 
+// Helper components/views for Stats tab
+interface AnalyticsDashboardProps {
+  entries: DiaryEntry[];
+  onSelectTag: (tag: string) => void;
+}
+
+function AnalyticsDashboard({ entries, onSelectTag }: AnalyticsDashboardProps) {
+  // 1. Mood counts
+  const moodCounts = entries.reduce((acc, entry) => {
+    acc[entry.mood] = (acc[entry.mood] || 0) + 1;
+    return acc;
+  }, {} as Record<MoodType, number>);
+
+  const totalEntries = entries.length;
+
+  // Track hovered segment in donut chart
+  const [hoveredMood, setHoveredMood] = useState<MoodType | null>(null);
+
+  // 2. Heatmap Grid
+  // Compute day mapping for 53 weeks
+  // Find sunday 364 days ago
+  const today = new Date();
+  const startDate = new Date();
+  startDate.setDate(today.getDate() - 364);
+  const dayOfWeek = startDate.getDay();
+  startDate.setDate(startDate.getDate() - dayOfWeek); // Go back to Sunday
+
+  // Generate cells
+  const heatmapWeeks: string[][] = [];
+  const currentDay = new Date(startDate);
+  for (let w = 0; w < 53; w++) {
+    const week: string[] = [];
+    for (let d = 0; d < 7; d++) {
+      week.push(getLocalDateString(currentDay));
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+    heatmapWeeks.push(week);
+  }
+
+  // Group entries by dateString
+  const entriesByDate = entries.reduce((acc, entry) => {
+    acc[entry.dateString] = (acc[entry.dateString] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const [hoveredDay, setHoveredDay] = useState<{ date: string; count: number; x: number; y: number } | null>(null);
+
+  // 3. Mood Timeline (last 30 days)
+  const timelineDays: { dateStr: string; score: number; entries: DiaryEntry[] }[] = [];
+  const moodScores: Record<MoodType, number> = {
+    joyful: 5,
+    calm: 4,
+    reflective: 3,
+    anxious: 2,
+    tired: 1
+  };
+
+  const [hoveredTimelinePoint, setHoveredTimelinePoint] = useState<{
+    dateStr: string;
+    score: number;
+    title: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Populate last 30 days
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(today.getDate() - i);
+    const dStr = getLocalDateString(d);
+    const dayEntries = entries.filter(e => e.dateString === dStr);
+    if (dayEntries.length > 0) {
+      const avgScore = dayEntries.reduce((sum, e) => sum + moodScores[e.mood], 0) / dayEntries.length;
+      timelineDays.push({ dateStr: dStr, score: avgScore, entries: dayEntries });
+    }
+  }
+
+  // Calculate SVG points for timeline
+  // Width = 500, Height = 150
+  const svgWidth = 500;
+  const svgHeight = 150;
+  const paddingX = 30;
+  const paddingY = 25;
+
+  const chartWidth = svgWidth - paddingX * 2;
+  const chartHeight = svgHeight - paddingY * 2;
+
+  const timelinePoints = timelineDays.map((d, index) => {
+    // X goes from 0 to chartWidth based on index if multiple, or center
+    const x = timelineDays.length > 1
+      ? paddingX + (index / (timelineDays.length - 1)) * chartWidth
+      : svgWidth / 2;
+
+    // Y goes from paddingY to svgHeight - paddingY based on score (1 to 5)
+    // 5 maps to paddingY (top), 1 maps to svgHeight - paddingY (bottom)
+    const y = paddingY + chartHeight - ((d.score - 1) / 4) * chartHeight;
+
+    return { x, y, dateStr: d.dateStr, score: d.score, firstEntry: d.entries[0] };
+  });
+
+  // SVG Path description
+  let linePath = '';
+  let areaPath = '';
+  if (timelinePoints.length > 1) {
+    linePath = `M ${timelinePoints[0].x} ${timelinePoints[0].y} ` +
+      timelinePoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ');
+
+    areaPath = `${linePath} L ${timelinePoints[timelinePoints.length - 1].x} ${svgHeight - paddingY} L ${timelinePoints[0].x} ${svgHeight - paddingY} Z`;
+  }
+
+  // 4. Tags frequency
+  const tagCounts: Record<string, number> = {};
+  entries.forEach(e => {
+    e.tags.forEach(t => {
+      tagCounts[t] = (tagCounts[t] || 0) + 1;
+    });
+  });
+
+  const sortedTags = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30); // Show top 30 tags
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.4s ease' }}>
+      
+      {/* Overview Cards Row */}
+      <div className="stats-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px' }}>
+        <div className="stats-card" style={{ display: 'flex', flexDirection: 'column', padding: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px' }}>
+          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Stories</span>
+          <span style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{totalEntries}</span>
+        </div>
+        <div className="stats-card" style={{ display: 'flex', flexDirection: 'column', padding: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px' }}>
+          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Tags</span>
+          <span style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{Object.keys(tagCounts).length}</span>
+        </div>
+        <div className="stats-card" style={{ display: 'flex', flexDirection: 'column', padding: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px' }}>
+          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Days</span>
+          <span style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>{Object.keys(entriesByDate).length}</span>
+        </div>
+      </div>
+
+      {/* Grid of Charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
+        
+        {/* Heatmap Grid */}
+        <div className="stats-card" style={{ position: 'relative', display: 'flex', flexDirection: 'column', padding: '20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <Activity size={16} color="var(--accent)" />
+            <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-primary)', margin: 0 }}>
+              Writing Heatmap
+            </h3>
+          </div>
+          <div style={{ overflowX: 'auto', width: '100%' }}>
+            <div style={{ display: 'flex', gap: '3px', minWidth: '630px', paddingBottom: '4px' }}>
+              {/* Day Labels */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)', paddingRight: '8px', height: '80px', paddingTop: '4px', paddingBottom: '4px' }}>
+                <span>Sun</span>
+                <span>Wed</span>
+                <span>Sat</span>
+              </div>
+              {/* Weeks */}
+              {heatmapWeeks.map((week, wIdx) => (
+                <div key={wIdx} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {week.map((dateStr) => {
+                    const count = entriesByDate[dateStr] || 0;
+                    let cellColor = 'var(--bg-active)';
+                    if (count === 1) cellColor = 'rgba(var(--accent-rgb), 0.25)';
+                    else if (count === 2) cellColor = 'rgba(var(--accent-rgb), 0.55)';
+                    else if (count >= 3) cellColor = 'var(--accent)';
+
+                    return (
+                      <div
+                        key={dateStr}
+                        onMouseEnter={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setHoveredDay({
+                            date: dateStr,
+                            count,
+                            x: rect.left + rect.width / 2,
+                            y: rect.top - 8
+                          });
+                        }}
+                        onMouseLeave={() => setHoveredDay(null)}
+                        style={{
+                          width: '10px',
+                          height: '10px',
+                          borderRadius: '2px',
+                          background: cellColor,
+                          border: '1px solid var(--border-muted)',
+                          transition: 'transform 0.1s ease',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Heatmap Legend */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '6px', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            <span>Less</span>
+            <div style={{ width: '8px', height: '8px', borderRadius: '1px', background: 'var(--bg-active)' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '1px', background: 'rgba(var(--accent-rgb), 0.25)' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '1px', background: 'rgba(var(--accent-rgb), 0.55)' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '1px', background: 'var(--accent)' }} />
+            <span>More</span>
+          </div>
+        </div>
+
+        {/* Two Columns for Donut Chart & Word Cloud */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+          
+          {/* Donut Chart */}
+          <div className="stats-card" style={{ display: 'flex', flexDirection: 'column', padding: '20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <BarChart2 size={16} color="var(--accent)" />
+              <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-primary)', margin: 0 }}>
+                Mood Distribution
+              </h3>
+            </div>
+            
+            {totalEntries === 0 ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No entries recorded.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                <div style={{ position: 'relative', width: '160px', height: '160px' }}>
+                  <svg width="100%" height="100%" viewBox="0 0 120 120" style={{ transform: 'rotate(-90deg)' }}>
+                    {/* Background track circle */}
+                    <circle cx="60" cy="60" r="50" fill="transparent" stroke="var(--bg-active)" strokeWidth="12" />
+                    {(() => {
+                      let currentOffset = 0;
+                      const circ = 314.159;
+                      return MOODS.map(m => {
+                        const count = moodCounts[m.type] || 0;
+                        if (count === 0) return null;
+                        const pct = count / totalEntries;
+                        const dashArrayStr = `${pct * circ} ${circ}`;
+                        const dashOffsetVal = currentOffset;
+                        currentOffset -= pct * circ;
+
+                        const isHovered = hoveredMood === m.type;
+
+                        return (
+                          <circle
+                            key={m.type}
+                            cx="60"
+                            cy="60"
+                            r="50"
+                            fill="transparent"
+                            stroke={m.color}
+                            strokeWidth={isHovered ? 16 : 12}
+                            strokeDasharray={dashArrayStr}
+                            strokeDashoffset={dashOffsetVal}
+                            strokeLinecap="round"
+                            style={{
+                              transition: 'stroke-width 0.2s ease, opacity 0.2s ease',
+                              cursor: 'pointer',
+                              opacity: hoveredMood && !isHovered ? 0.4 : 1
+                            }}
+                            onMouseEnter={() => setHoveredMood(m.type)}
+                            onMouseLeave={() => setHoveredMood(null)}
+                          />
+                        );
+                      });
+                    })()}
+                  </svg>
+                  {/* Center Text overlay */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'none',
+                    textAlign: 'center'
+                  }}>
+                    {hoveredMood ? (
+                      <>
+                        <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>
+                          {MOODS.find(m => m.type === hoveredMood)?.icon}
+                        </span>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px' }}>
+                          {moodCounts[hoveredMood]} {moodCounts[hoveredMood] === 1 ? 'Entry' : 'Entries'}
+                        </span>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+                          {Math.round((moodCounts[hoveredMood] / totalEntries) * 100)}%
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
+                          {totalEntries}
+                        </span>
+                        <span style={{ fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: '2px' }}>
+                          Total
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Legend swatches */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', width: '100%', fontSize: '0.76rem' }}>
+                  {MOODS.map(m => {
+                    const count = moodCounts[m.type] || 0;
+                    return (
+                      <div
+                        key={m.type}
+                        onMouseEnter={() => setHoveredMood(m.type)}
+                        onMouseLeave={() => setHoveredMood(null)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 8px',
+                          borderRadius: '8px',
+                          background: hoveredMood === m.type ? 'var(--bg-active)' : 'transparent',
+                          transition: 'background 0.15s ease',
+                          cursor: 'pointer',
+                          opacity: count === 0 ? 0.35 : 1
+                        }}
+                      >
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: m.color, flexShrink: 0 }} />
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{m.label}</span>
+                        <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>({count})</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Word Cloud / Tags Panel */}
+          <div className="stats-card" style={{ display: 'flex', flexDirection: 'column', padding: '20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Tag size={16} color="var(--accent)" />
+              <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-primary)', margin: 0 }}>
+                Popular Tags
+              </h3>
+            </div>
+
+            {sortedTags.length === 0 ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                No tags created yet.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignContent: 'flex-start', flex: 1 }}>
+                {sortedTags.map(([tag, count]) => {
+                  // Font size base = 0.75rem, scale based on frequency
+                  const maxCount = sortedTags[0][1];
+                  const fontSize = 0.75 + (count / maxCount) * 0.65; // scale from 0.75rem to 1.4rem
+                  
+                  return (
+                    <button
+                      key={tag}
+                      onClick={() => onSelectTag(tag)}
+                      className="tag-chip"
+                      style={{
+                        fontSize: `${fontSize}rem`,
+                        padding: `${4 + (count / maxCount) * 4}px ${10 + (count / maxCount) * 4}px`,
+                        borderRadius: '20px',
+                        background: 'var(--bg-active)',
+                        borderColor: 'var(--border)',
+                        color: 'var(--text-secondary)',
+                        transition: 'all 0.18s ease'
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = 'var(--accent)';
+                        e.currentTarget.style.color = 'var(--accent)';
+                        e.currentTarget.style.transform = 'scale(1.05)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                        e.currentTarget.style.transform = 'scale(1)';
+                      }}
+                    >
+                      #{tag} <span style={{ fontSize: '0.7em', opacity: 0.6, fontWeight: 500 }}>{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 30-Day Timeline Area Chart */}
+        <div className="stats-card" style={{ position: 'relative', display: 'flex', flexDirection: 'column', padding: '20px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <TrendingUp size={16} color="var(--accent)" />
+            <h3 style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-primary)', margin: 0 }}>
+              30-Day Mood Trend
+            </h3>
+          </div>
+
+          {timelinePoints.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '150px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              No entries written in the last 30 days to plot mood trends.
+            </div>
+          ) : (
+            <div style={{ width: '100%', overflowX: 'auto' }}>
+              <div style={{ minWidth: '480px', position: 'relative' }}>
+                <svg width="100%" height={svgHeight} viewBox={`0 0 ${svgWidth} ${svgHeight}`} style={{ overflow: 'visible' }}>
+                  {/* Grid Lines */}
+                  {[1, 2, 3, 4, 5].map((lvl) => {
+                    const y = paddingY + chartHeight - ((lvl - 1) / 4) * chartHeight;
+                    return (
+                      <g key={lvl}>
+                        <line x1={paddingX} y1={y} x2={svgWidth - paddingX} y2={y} stroke="var(--border-muted)" strokeDasharray="3 3" strokeWidth="1" />
+                        <text x={paddingX - 10} y={y + 4} textAnchor="end" style={{ fontSize: '9px', fill: 'var(--text-muted)', fontWeight: 600 }}>
+                          {MOODS.find(m => moodScores[m.type] === lvl)?.icon}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Shaded Area */}
+                  {timelinePoints.length > 1 && (
+                    <path d={areaPath} fill="var(--accent)" fillOpacity="0.10" />
+                  )}
+
+                  {/* Connected Trend Line */}
+                  {timelinePoints.length > 1 && (
+                    <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                  )}
+
+                  {/* Vertex Points */}
+                  {timelinePoints.map((p) => (
+                    <circle
+                      key={p.dateStr}
+                      cx={p.x}
+                      cy={p.y}
+                      r={hoveredTimelinePoint?.dateStr === p.dateStr ? 6 : 4}
+                      fill="var(--bg-card)"
+                      stroke="var(--accent)"
+                      strokeWidth="2"
+                      style={{ cursor: 'pointer', transition: 'r 0.15s ease' }}
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setHoveredTimelinePoint({
+                          dateStr: p.dateStr,
+                          score: p.score,
+                          title: p.firstEntry.title,
+                          x: rect.left + rect.width / 2,
+                          y: rect.top - 8
+                        });
+                      }}
+                      onMouseLeave={() => setHoveredTimelinePoint(null)}
+                    />
+                  ))}
+                </svg>
+              </div>
+            </div>
+          )}
+          
+          {/* Chart Label */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '8px', paddingLeft: `${paddingX}px`, paddingRight: `${paddingX}px` }}>
+            <span>30 days ago</span>
+            <span>Today</span>
+          </div>
+        </div>
+      </div>
+
+      {/* HEATMAP HOVER TOOLTIP */}
+      {hoveredDay && (
+        <div style={{
+          position: 'fixed',
+          left: `${hoveredDay.x}px`,
+          top: `${hoveredDay.y}px`,
+          transform: 'translate(-50%, -100%)',
+          zIndex: 99999,
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '6px 10px',
+          boxShadow: 'var(--shadow-md)',
+          fontSize: '0.74rem',
+          color: 'var(--text-primary)',
+          pointerEvents: 'none',
+          whiteSpace: 'nowrap'
+        }}>
+          <strong style={{ display: 'block', color: 'var(--text-secondary)' }}>
+            {new Date(hoveredDay.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          </strong>
+          <span>{hoveredDay.count} {hoveredDay.count === 1 ? 'story' : 'stories'}</span>
+        </div>
+      )}
+
+      {/* TIMELINE HOVER TOOLTIP */}
+      {hoveredTimelinePoint && (
+        <div style={{
+          position: 'fixed',
+          left: `${hoveredTimelinePoint.x}px`,
+          top: `${hoveredTimelinePoint.y}px`,
+          transform: 'translate(-50%, -100%)',
+          zIndex: 99999,
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '6px 12px',
+          boxShadow: 'var(--shadow-md)',
+          fontSize: '0.74rem',
+          color: 'var(--text-primary)',
+          pointerEvents: 'none',
+          maxWidth: '220px',
+          whiteSpace: 'normal',
+          wordBreak: 'break-word'
+        }}>
+          <strong style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
+            {new Date(hoveredTimelinePoint.dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          </strong>
+          <div style={{ color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', margin: '2px 0' }}>
+            <span>Score: {hoveredTimelinePoint.score.toFixed(1)} / 5.0</span>
+          </div>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>"{hoveredTimelinePoint.title}"</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [entries, setEntries] = useState<DiaryEntry[]>(() => DiaryStorageService.getAll());
   const [seeded, setSeeded] = useState(false);
@@ -99,7 +630,7 @@ function App() {
   const [fabRipple, setFabRipple] = useState(false);
 
   // Navigation states
-  const [activeTab, setActiveTab] = useState<'entries' | 'calendar'>('entries');
+  const [activeTab, setActiveTab] = useState<'entries' | 'calendar' | 'stats'>('entries');
 
   // Infinite-scroll feed state
   const INITIAL_VISIBLE = 5;
@@ -109,7 +640,15 @@ function App() {
 
   // Search & Tag Filter States
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedWeathers, setSelectedWeathers] = useState<WeatherType[]>([]);
+  const [filterLocation, setFilterLocation] = useState('');
+  const [selectedColors, setSelectedColors] = useState<string[]>([]);
+  const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
+
+  // Formatting Toolbar states
+  const [isColorPopoverOpen, setIsColorPopoverOpen] = useState(false);
+
 
   // Month navigation states
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
@@ -468,7 +1007,7 @@ function App() {
     });
   };
 
-  const applyFormat = (type: 'bold' | 'italic' | 'h1' | 'h2' | 'quote' | 'bullet' | 'code') => {
+  const applyFormat = (type: 'bold' | 'italic' | 'h1' | 'h2' | 'quote' | 'bullet' | 'code' | 'number') => {
     if (contentRef.current) {
       contentRef.current.focus();
     }
@@ -508,6 +1047,9 @@ function App() {
         break;
       case 'bullet':
         document.execCommand('insertUnorderedList', false);
+        break;
+      case 'number':
+        document.execCommand('insertOrderedList', false);
         break;
     }
 
@@ -578,6 +1120,134 @@ function App() {
     setSelectedEntry(null);
     resetForm();
   };
+
+  const downloadJSONBackup = () => {
+    const dataStr = JSON.stringify(entries, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aurelius_backup_${getLocalDateString(new Date())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadMarkdownZip = async () => {
+    try {
+      const zip = new JSZip();
+      
+      entries.forEach((entry) => {
+        const markdownContent = `---
+title: ${entry.title}
+date: ${entry.dateString}
+created_at: ${entry.createdAt}
+mood: ${entry.mood}
+weather: ${entry.weather}
+temperature: ${entry.temperature || ''}
+location: ${entry.location}
+tags: ${entry.tags.join(', ')}
+card_color: ${entry.cardColor || ''}
+---
+
+${stripMarkdown(entry.content)}
+`;
+        
+        const safeTitle = entry.title.replace(/[\\/:*?"<>|]/g, '_') || 'untitled';
+        const filename = `${entry.dateString}_${safeTitle}.md`;
+        
+        zip.file(filename, markdownContent);
+      });
+      
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aurelius_diary_backup_${getLocalDateString(new Date())}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to generate Markdown zip:', error);
+      alert('Failed to export Markdown backup. Please try again.');
+    }
+  };
+
+  const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target?.result as string);
+        if (!Array.isArray(imported)) {
+          alert('Invalid backup file. Must be a JSON array of entries.');
+          return;
+        }
+
+        const validEntries: DiaryEntry[] = [];
+        let invalidCount = 0;
+        for (const item of imported) {
+          if (item && typeof item === 'object' && item.id && item.title && item.content && item.dateString && item.mood && item.weather) {
+            validEntries.push({
+              id: String(item.id),
+              title: String(item.title),
+              content: String(item.content),
+              createdAt: item.createdAt ? String(item.createdAt) : new Date().toISOString(),
+              dateString: String(item.dateString),
+              mood: item.mood as MoodType,
+              weather: item.weather as WeatherType,
+              temperature: item.temperature ? String(item.temperature) : undefined,
+              location: item.location ? String(item.location) : 'Unknown',
+              tags: Array.isArray(item.tags) ? item.tags.map(String) : [],
+              cardColor: item.cardColor ? String(item.cardColor) : undefined
+            });
+          } else {
+            invalidCount++;
+          }
+        }
+
+        if (validEntries.length === 0) {
+          alert('No valid diary entries found in the file.');
+          return;
+        }
+
+        if (invalidCount > 0) {
+          if (!confirm(`Found ${invalidCount} invalid/malformed entries. Continue importing the other ${validEntries.length} entries?`)) {
+            return;
+          }
+        }
+
+        const existingMap = new Map(entries.map(en => [en.id, en]));
+        let newCount = 0;
+        let updateCount = 0;
+
+        validEntries.forEach((entry) => {
+          if (existingMap.has(entry.id)) {
+            existingMap.set(entry.id, entry);
+            updateCount++;
+          } else {
+            existingMap.set(entry.id, entry);
+            newCount++;
+          }
+        });
+
+        const merged = Array.from(existingMap.values());
+        setEntries(merged);
+        merged.forEach(entry => DiaryStorageService.save(entry));
+        alert(`Import complete! Added ${newCount} new entries, updated ${updateCount} existing entries.`);
+      } catch (error) {
+        console.error('Failed to import backup JSON:', error);
+        alert('Failed to parse backup JSON file. Ensure it is a valid backup file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
 
   const fetchAutoDetectInfo = async () => {
     setIsLoadingWeather(true);
@@ -691,10 +1361,21 @@ function App() {
       entry.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
       entry.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const matchesTag = !selectedTag || entry.tags.includes(selectedTag);
+    const matchesTags = selectedTags.length === 0 ||
+      selectedTags.every(tag => entry.tags.includes(tag));
 
-    return matchesQuery && matchesTag;
+    const matchesWeather = selectedWeathers.length === 0 ||
+      selectedWeathers.includes(entry.weather);
+
+    const matchesLocation = filterLocation.trim() === '' ||
+      entry.location.toLowerCase().includes(filterLocation.toLowerCase());
+
+    const matchesColor = selectedColors.length === 0 ||
+      selectedColors.includes(entry.cardColor || MOODS.find(m => m.type === entry.mood)?.color || '');
+
+    return matchesQuery && matchesTags && matchesWeather && matchesLocation && matchesColor;
   });
+
 
   const sortEntriesArray = (arr: DiaryEntry[]) => {
     return arr.slice().sort((a, b) => {
@@ -851,6 +1532,19 @@ function App() {
                 )}
                 Calendar
               </button>
+              <button
+                onClick={() => setActiveTab('stats')}
+                className={`tab-button ${activeTab === 'stats' ? 'active' : ''}`}
+              >
+                {activeTab === 'stats' && (
+                  <motion.div
+                    layoutId="activeTabIndicator"
+                    className="tab-indicator"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
+                Analytics
+              </button>
             </div>
             {entries.length > 0 && (
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -871,42 +1565,188 @@ function App() {
             
             {/* Search and Tag Ribbon */}
             <div className="solid-card" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {/* Search Bar */}
-              <div className="search-container">
-                <Search size={16} className="search-icon" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search title, story, tags..."
-                  className="search-input"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer' }}
-                  >
-                    <X size={15} />
-                  </button>
-                )}
+              {/* Search Bar Row */}
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div className="search-container" style={{ flex: 1 }}>
+                  <Search size={16} className="search-icon" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search title, story, tags..."
+                    className="search-input"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                </div>
+                {/* Advanced filters toggle */}
+                <button
+                  type="button"
+                  onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '10px 16px',
+                    borderRadius: '20px',
+                    border: '1px solid var(--border)',
+                    backgroundColor: isFiltersExpanded ? 'var(--bg-active)' : 'var(--bg-hover)',
+                    color: isFiltersExpanded ? 'var(--accent)' : 'var(--text-secondary)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    transition: 'all 0.2s ease',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <Settings size={14} className={isFiltersExpanded ? 'spin-anim' : ''} />
+                  Filters
+                </button>
               </div>
 
-              {/* Tag filters */}
+              {/* Collapsible Advanced Filters Section */}
+              <AnimatePresence>
+                {isFiltersExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}
+                  >
+                    {/* Row 1: Location & Colors */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                      {/* Location Input */}
+                      <div>
+                        <span className="form-label" style={{ fontSize: '0.65rem', marginBottom: '4px' }}>Location</span>
+                        <div style={{ position: 'relative' }}>
+                          <MapPin size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                          <input
+                            type="text"
+                            value={filterLocation}
+                            onChange={(e) => setFilterLocation(e.target.value)}
+                            placeholder="Filter by city/country..."
+                            className="form-input"
+                            style={{ paddingLeft: '34px', fontSize: '0.8rem', borderRadius: '14px' }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Card Color Filter */}
+                      <div>
+                        <span className="form-label" style={{ fontSize: '0.65rem', marginBottom: '4px' }}>Card Color</span>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', height: '36px' }}>
+                          {CARD_COLOR_PRESETS.map((preset) => {
+                            const isSelected = selectedColors.includes(preset.hex);
+                            return (
+                              <button
+                                key={preset.hex}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedColors(selectedColors.filter(c => c !== preset.hex));
+                                  } else {
+                                    setSelectedColors([...selectedColors, preset.hex]);
+                                  }
+                                }}
+                                style={{
+                                  width: '22px',
+                                  height: '22px',
+                                  borderRadius: '50%',
+                                  backgroundColor: preset.hex,
+                                  border: `2px solid ${isSelected ? 'var(--text-primary)' : 'transparent'}`,
+                                  boxShadow: isSelected ? `0 0 0 1px ${preset.hex}` : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                title={preset.label}
+                              />
+                            );
+                          })}
+                          {selectedColors.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedColors([])}
+                              style={{ fontSize: '0.68rem', color: 'var(--accent)', fontWeight: 600, marginLeft: '6px', cursor: 'pointer' }}
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Weather Selectors */}
+                    <div>
+                      <span className="form-label" style={{ fontSize: '0.65rem', marginBottom: '4px' }}>Weather</span>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {(Object.keys(WEATHER_ICONS) as WeatherType[]).map((wKey) => {
+                          const isSelected = selectedWeathers.includes(wKey);
+                          return (
+                            <button
+                              key={wKey}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedWeathers(selectedWeathers.filter(w => w !== wKey));
+                                } else {
+                                  setSelectedWeathers([...selectedWeathers, wKey]);
+                                }
+                              }}
+                              className={`tag-chip ${isSelected ? 'selected' : ''}`}
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px' }}
+                            >
+                              <span>{WEATHER_ICONS[wKey].emoji}</span>
+                              <span>{WEATHER_ICONS[wKey].label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Tag filters (Multi-Select) */}
               {allUniqueTags.length > 0 && (
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', borderTop: isFiltersExpanded ? '1px solid var(--border)' : 'none', paddingTop: isFiltersExpanded ? '12px' : '0' }}>
                   <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Tags:</span>
-                  {allUniqueTags.map(tag => (
+                  {allUniqueTags.map(tag => {
+                    const isSelected = selectedTags.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedTags(selectedTags.filter(t => t !== tag));
+                          } else {
+                            setSelectedTags([...selectedTags, tag]);
+                          }
+                        }}
+                        className={`tag-chip ${isSelected ? 'selected' : ''}`}
+                      >
+                        #{tag}
+                      </button>
+                    );
+                  })}
+                  {(selectedTags.length > 0 || selectedWeathers.length > 0 || filterLocation || selectedColors.length > 0) && (
                     <button
-                      key={tag}
-                      onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-                      className={`tag-chip ${selectedTag === tag ? 'selected' : ''}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedTags([]);
+                        setSelectedWeathers([]);
+                        setFilterLocation('');
+                        setSelectedColors([]);
+                      }}
+                      style={{ fontSize: '0.7rem', color: 'var(--accent)', cursor: 'pointer', fontWeight: 700, marginLeft: '4px' }}
                     >
-                      #{tag}
-                    </button>
-                  ))}
-                  {selectedTag && (
-                    <button onClick={() => setSelectedTag(null)} style={{ fontSize: '0.7rem', color: 'var(--accent)', cursor: 'pointer', fontWeight: 700, marginLeft: '4px' }}>
-                      Clear ×
+                      Reset All ×
                     </button>
                   )}
                 </div>
@@ -921,7 +1761,7 @@ function App() {
               layout
               style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}
             >
-              {(searchQuery || selectedTag) ? (
+              {(searchQuery || selectedTags.length > 0 || selectedWeathers.length > 0 || filterLocation || selectedColors.length > 0) ? (
                 filteredEntries.length > 0 ? (
                   filteredEntries.map((entry, idx) => {
                     const parsedDate = parseLocalDate(entry.dateString);
@@ -1097,7 +1937,7 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); handleEditEntry(entry); }}
+                                  onClick={(e) => { e.stopPropagation(); openEditorForEntry(entry); }}
                                   style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: '6px' }}
                                   onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-subtle)'; }}
                                   onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
@@ -1258,6 +2098,18 @@ function App() {
               </div>
             </div>
           </motion.div>
+        )}
+
+        {/* TAB 3: STATS DASHBOARD */}
+        {activeTab === 'stats' && (
+          <AnalyticsDashboard
+            entries={entries}
+            onSelectTag={(tag) => {
+              setSelectedTags([tag]);
+              setIsFiltersExpanded(true);
+              setActiveTab('entries');
+            }}
+          />
         )}
       </main>
 
@@ -1645,6 +2497,152 @@ function App() {
                     </span>
                   </div>
 
+                  {/* Formatting Toolbar */}
+                  <div className="formatting-toolbar" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '6px 12px',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px 12px 0 0',
+                    backgroundColor: 'var(--bg-card)',
+                    flexWrap: 'wrap'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('bold')}
+                      className="toolbar-btn"
+                      title="Bold (Ctrl+B)"
+                    >
+                      <Bold size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('italic')}
+                      className="toolbar-btn"
+                      title="Italic (Ctrl+I)"
+                    >
+                      <Italic size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('code')}
+                      className="toolbar-btn"
+                      title="Monospace (Ctrl+Shift+M)"
+                    >
+                      <Code2 size={14} />
+                    </button>
+                    
+                    <div style={{ width: '1px', height: '18px', background: 'var(--border)', margin: '0 4px' }} />
+
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('h1')}
+                      className="toolbar-btn"
+                      title="Heading 1 (Ctrl+Shift+1)"
+                    >
+                      <Heading1 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('h2')}
+                      className="toolbar-btn"
+                      title="Heading 2 (Ctrl+Shift+2)"
+                    >
+                      <Heading2 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('quote')}
+                      className="toolbar-btn"
+                      title="Blockquote (Ctrl+Shift+.)"
+                    >
+                      <Quote size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('bullet')}
+                      className="toolbar-btn"
+                      title="Bullet List (Ctrl+Shift+L)"
+                    >
+                      <List size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyFormat('number')}
+                      className="toolbar-btn"
+                      title="Numbered List"
+                    >
+                      <ListOrdered size={14} />
+                    </button>
+
+                    <div style={{ width: '1px', height: '18px', background: 'var(--border)', margin: '0 4px' }} />
+
+                    {/* Text Color Swatch Button & Popover */}
+                    <div style={{ position: 'relative' }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsColorPopoverOpen(!isColorPopoverOpen)}
+                        className={`toolbar-btn ${isColorPopoverOpen ? 'active' : ''}`}
+                        title="Text Color"
+                      >
+                        <span style={{ fontSize: '13px', fontWeight: 'bold', textDecoration: 'underline', color: 'var(--accent)', lineHeight: 1 }}>A</span>
+                      </button>
+                      
+                      {isColorPopoverOpen && (
+                        <>
+                          <div
+                            onClick={() => setIsColorPopoverOpen(false)}
+                            style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+                          />
+                          <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            marginTop: '6px',
+                            zIndex: 1000,
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '10px',
+                            padding: '8px',
+                            boxShadow: 'var(--shadow-md)',
+                            display: 'flex',
+                            gap: '6px',
+                            flexWrap: 'wrap',
+                            width: '160px'
+                          }}>
+                            {TEXT_COLORS.map(c => (
+                              <button
+                                key={c.color}
+                                type="button"
+                                title={c.name}
+                                onClick={() => {
+                                  applyColorFormat(c.color);
+                                  setIsColorPopoverOpen(false);
+                                }}
+                                style={{
+                                  width: '20px',
+                                  height: '20px',
+                                  borderRadius: '50%',
+                                  backgroundColor: c.color === 'inherit' ? 'transparent' : c.color,
+                                  border: c.color === 'inherit' ? '1px dashed var(--text-muted)' : '1px solid var(--border)',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '9px',
+                                  color: 'var(--text-muted)'
+                                }}
+                              >
+                                {c.color === 'inherit' && '✕'}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Rich Text Editor — WYSIWYG editor */}
                   <div
                     ref={contentRef}
@@ -1660,17 +2658,18 @@ function App() {
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); applyFormat('bullet'); }
                     }}
                     onContextMenu={handleEditorContextMenu}
-                    className="form-input form-textarea rich-editor prose"
+                    className="rich-editor prose"
                     style={{
                       minHeight: '220px',
                       maxHeight: '400px',
                       overflowY: 'auto',
-                      borderRadius: '12px',
+                      borderRadius: '0 0 12px 12px',
                       fontFamily: 'var(--font-sans)',
                       lineHeight: 1.75,
                       fontSize: '0.93rem',
                       padding: '12px 16px',
-                      border: '1px solid var(--border-subtle)',
+                      border: '1px solid var(--border)',
+                      borderTop: 'none',
                       backgroundColor: 'rgba(0, 0, 0, 0.2)',
                       color: 'var(--text-primary)',
                       outline: 'none',
@@ -2097,6 +3096,108 @@ function App() {
                         {sortOption === opt && <Check size={14} color="var(--accent)" />}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Backup & Export Options */}
+                <div>
+                  <label className="form-label">Backup & Export</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                    <button
+                      type="button"
+                      onClick={downloadJSONBackup}
+                      disabled={entries.length === 0}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-card)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                        fontWeight: 500,
+                        cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        opacity: entries.length === 0 ? 0.5 : 1,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={e => { if (entries.length > 0) e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                    >
+                      <Download size={14} />
+                      Download JSON Backup
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={downloadMarkdownZip}
+                      disabled={entries.length === 0}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-card)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                        fontWeight: 500,
+                        cursor: entries.length === 0 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        opacity: entries.length === 0 ? 0.5 : 1,
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={e => { if (entries.length > 0) e.currentTarget.style.borderColor = 'var(--accent)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                    >
+                      <Download size={14} />
+                      Download Markdown Zip
+                    </button>
+
+                    {/* Import Button with Hidden File Input */}
+                    <div style={{ position: 'relative', width: '100%' }}>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleImportJSON}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          opacity: 0,
+                          cursor: 'pointer',
+                          zIndex: 2
+                        }}
+                      />
+                      <button
+                        type="button"
+                        style={{
+                          width: '100%',
+                          padding: '0.75rem 1rem',
+                          borderRadius: '12px',
+                          border: '1px solid var(--border)',
+                          background: 'var(--bg-card)',
+                          color: 'var(--text-primary)',
+                          fontSize: '0.85rem',
+                          fontWeight: 500,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.5rem',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <Upload size={14} />
+                        Import JSON Backup
+                      </button>
+                    </div>
                   </div>
                 </div>
 

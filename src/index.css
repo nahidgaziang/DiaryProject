@@ -886,3 +886,71 @@ button, input, textarea, select {
   background: var(--mood-calm); /* Mendung Parah sky blue */
   animation: drift-one 35s infinite ease-in-out;
 }
+
+/* ================================================================
+   INTERACTIVE STATISTICS & CHARTS
+   ================================================================ */
+.stats-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.stats-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent-border) !important;
+}
+
+/* ================================================================
+   FORMATTING TOOLBAR
+   ================================================================ */
+.formatting-toolbar {
+  border-bottom: none !important;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toolbar-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.toolbar-btn.active {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+/* ================================================================
+   FILTER BAR AND EXPANDABLE SECTIONS
+   ================================================================ */
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-pill.selected {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
