@@ -625,7 +625,13 @@ function App() {
   const [activeTheme, setActiveTheme] = useState<'ocean' | 'forest' | 'amber' | 'slate'>('ocean');
   const [customThemeColor, setCustomThemeColor] = useState<string>('#1A92B4');
   const [isCustomTheme, setIsCustomTheme] = useState<boolean>(false);
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem('aurelius_theme_mode');
+    if (saved !== null) {
+      return saved === 'dark';
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [fabRipple, setFabRipple] = useState(false);
 
@@ -727,6 +733,7 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', activeTheme);
     document.documentElement.setAttribute('data-mode', isDark ? 'dark' : 'light');
+    localStorage.setItem('aurelius_theme_mode', isDark ? 'dark' : 'light');
 
     const root = document.documentElement;
     if (isCustomTheme && customThemeColor) {
