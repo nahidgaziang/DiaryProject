@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List, Minus as DividerIcon } from 'lucide-react';
+import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List } from 'lucide-react';
 import type { DiaryEntry, MoodType, WeatherType } from './types';
 import { DiaryStorageService } from './utils/storage';
 import { detectLocation, fetchWeather } from './utils/weather';
@@ -1456,7 +1456,6 @@ function App() {
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '2') { e.preventDefault(); applyFormat('h2'); }
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '.') { e.preventDefault(); applyFormat('quote'); }
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); applyFormat('bullet'); }
-                      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); applyFormat('divider'); }
                     }}
                     onContextMenu={handleContextMenu}
                     placeholder={"Write your story...\n\nRight-click to format selected text.\nCtrl+B bold  ·  Ctrl+I italic  ·  Ctrl+Shift+M code"}
@@ -1990,10 +1989,6 @@ function App() {
           <div className="menu-item" onClick={() => { applyFormat('bullet'); setContextMenu(prev => ({ ...prev, visible: false })); }}>
             <span className="menu-label-icon"><List size={13} style={{ marginRight: 8 }} /> Bullet List</span>
             <span className="menu-shortcut">Ctrl+Shift+L</span>
-          </div>
-          <div className="menu-item" onClick={() => { applyFormat('divider'); setContextMenu(prev => ({ ...prev, visible: false })); }}>
-            <span className="menu-label-icon"><DividerIcon size={13} style={{ marginRight: 8 }} /> Divider Line</span>
-            <span className="menu-shortcut">Ctrl+Shift+D</span>
           </div>
 
           <div className="menu-separator" />
