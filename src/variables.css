@@ -1,0 +1,174 @@
+/* ================================================================
+   AURELIUS — Design Token System
+   Vivid Colorista Solid Palette (no gradients)
+   Inspired by: mid-century modern archives, Colorista, Craft.
+   ================================================================ */
+
+/* ── Fonts ────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+/* ================================================================
+   DARK MODE (default)
+   Cosmic Navy (Old Leaf) + Sky Blue (Mendung Parah)
+   ================================================================ */
+:root {
+  /* ── Typography ───────────────────────────────────────────── */
+  --font-sans:  'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+  /* ── Spacing (8px grid) ────────────────────────────────────── */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  24px;
+  --sp-6:  32px;
+  --sp-7:  48px;
+  --sp-8:  64px;
+
+  /* ── Radius ───────────────────────────────────────────────── */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   18px;
+  --radius-full: 9999px;
+
+  /* ── Backgrounds (dark navy) ────────────────────────────────── */
+  --bg-primary:    #08131E;   /* app background */
+  --bg-secondary:  #0D1C2B;   /* elevated layer (header, panels) */
+  --bg-card:       #132537;   /* card surface */
+  --bg-hover:      #1D3349;   /* hover state */
+  --bg-active:     #26415B;   /* active / selected */
+  --bg-input:      #132537;   /* form inputs */
+
+  /* ── Accent — Mendung Parah sky blue ─────────────────────────── */
+  --accent:        #76C2F0;
+  --accent-dim:    #1A92B4;
+  --accent-muted:  #0B4E61;
+  --accent-rgb:    118, 194, 240;
+  --accent-subtle: rgba(118, 194, 240, 0.12);
+  --accent-border: rgba(118, 194, 240, 0.35);
+
+  /* ── Text ──────────────────────────────────────────────────── */
+  --text-primary:   #F0F4F8;
+  --text-secondary: #9EB2C5;
+  --text-muted:     #5D7890;
+  --text-on-accent: #0B253A;
+
+  /* ── Borders ───────────────────────────────────────────────── */
+  --border:       #1F3850;   /* solid, no opacity tricks */
+  --border-muted: #152A3D;
+  --border-focus: #76C2F0;
+
+  /* ── Feedback ─────────────────────────────────────────────── */
+  --success:        #22C55E;
+  --success-subtle: rgba(34, 197, 94, 0.12);
+  --warning:        #FAB514;
+  --warning-subtle: rgba(250, 181, 20, 0.12);
+  --danger:         #FC7C00;
+  --danger-subtle:  rgba(252, 124, 0, 0.10);
+  --danger-border:  rgba(252, 124, 0, 0.30);
+
+  /* ── Shadows ──────────────────────────────────────────────── */
+  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.55);
+  --shadow-lg:  0 8px 32px rgba(0, 0, 0, 0.65);
+  --shadow-fab: 0 4px 20px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(118, 194, 240, 0.25);
+
+  /* ── Legacy compatibility aliases ─────────────────────────── */
+  --bg-app:          var(--bg-primary);
+  --bg-card-hover:   var(--bg-hover);
+  --border-subtle:   var(--border);
+  --border-focus-old: var(--border-focus);
+  --accent-color:    var(--accent);
+  --accent-gradient: var(--accent);
+  --accent-glow:     var(--accent);
+
+  /* ── Colorista Mood Map ───────────────────────────────────── */
+  --mood-joyful:     #FAB514;   /* Maroona (yellow) */
+  --mood-calm:       #76C2F0;   /* Mendung Parah (sky blue) */
+  --mood-reflective: #1A92B4;   /* Blue Kadestin (cyan-teal) */
+  --mood-tired:      #9EB2C5;   /* Old Leaf tint (slate blue) */
+  --mood-anxious:    #FC7C00;   /* Mendung (orange) */
+}
+
+/* ================================================================
+   LIGHT MODE
+   Warm Plaster Backdrop + Blue Kadestin Accent + Old Leaf Navy Text
+   ================================================================ */
+[data-mode="light"] {
+  --bg-primary:    #F4F6F8;
+  --bg-secondary:  #FFFFFF;
+  --bg-card:       #FFFFFF;
+  --bg-hover:      #E9ECF0;
+  --bg-active:     #DCE1E7;
+  --bg-input:      #FFFFFF;
+
+  --accent:        #1A92B4;   /* Blue Kadestin */
+  --accent-dim:    #116E88;
+  --accent-muted:  #0B4E61;
+  --accent-rgb:    26, 146, 180;
+  --accent-subtle: rgba(26, 146, 180, 0.08);
+  --accent-border: rgba(26, 146, 180, 0.28);
+
+  --text-primary:   #0B253A;   /* Old Leaf dark navy text */
+  --text-secondary: #4C657A;
+  --text-muted:     #7E95A8;
+  --text-on-accent: #FFFFFF;
+
+  --border:       #D2D9E0;
+  --border-muted: #E3E8ED;
+  --border-focus: #1A92B4;
+
+  --success:        #10B981;
+  --success-subtle: rgba(16, 185, 129, 0.10);
+  --warning:        #FAB514;   /* Maroona */
+  --warning-subtle: rgba(250, 181, 20, 0.10);
+  --danger:         #FC7C00;   /* Mendung orange */
+  --danger-subtle:  rgba(252, 124, 0, 0.08);
+  --danger-border:  rgba(252, 124, 0, 0.28);
+
+  --shadow-sm:  0 1px 3px rgba(11, 37, 58, 0.06);
+  --shadow-md:  0 4px 16px rgba(11, 37, 58, 0.08);
+  --shadow-lg:  0 8px 32px rgba(11, 37, 58, 0.12);
+  --shadow-fab: 0 4px 20px rgba(11, 37, 58, 0.12), 0 2px 8px rgba(26, 146, 180, 0.20);
+
+  --bg-app:          var(--bg-primary);
+  --bg-card-hover:   var(--bg-hover);
+  --border-subtle:   var(--border);
+  --accent-color:    var(--accent);
+  --accent-gradient: var(--accent);
+  --accent-glow:     var(--accent);
+}
+
+/* ================================================================
+   SUB-THEMES — solid Colorista colors
+   ================================================================ */
+[data-theme="ocean"] {
+  --accent:        #1A92B4;   /* Blue Kadestin */
+  --accent-dim:    #116E88;
+  --accent-muted:  #0B4E61;
+  --accent-rgb:    26, 146, 180;
+}
+
+[data-theme="forest"] {
+  --accent:        #76C2F0;   /* Mendung Parah */
+  --accent-dim:    #1A92B4;
+  --accent-muted:  #0B4E61;
+  --accent-rgb:    118, 194, 240;
+}
+
+[data-theme="amber"] {
+  --accent:        #FAB514;   /* Maroona */
+  --accent-dim:    #D4990F;
+  --accent-muted:  #9F720B;
+  --accent-rgb:    250, 181, 20;
+}
+
+[data-theme="slate"] {
+  --accent:        #FC7C00;   /* Mendung */
+  --accent-dim:    #D66900;
+  --accent-muted:  #A14F00;
+  --accent-rgb:    252, 124, 0;
+}

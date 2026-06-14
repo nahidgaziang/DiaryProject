@@ -1,10 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List } from 'lucide-react';
+import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List, Menu, Settings } from 'lucide-react';
 import type { DiaryEntry, MoodType, WeatherType } from './types';
 import { DiaryStorageService } from './utils/storage';
 import { detectLocation, fetchWeather } from './utils/weather';
 import { renderMarkdown, stripMarkdown } from './utils/markdown';
+
+interface DraftData {
+  title: string;
+  content: string;
+  mood: MoodType;
+  weather: WeatherType;
+  temperature: string;
+  location: string;
+  tags: string[];
+  cardColor?: string;
+  customColorInput: string;
+  isEditMode: boolean;
+  editingEntryId: string | null;
+  targetDateString: string;
+  savedAt: string;
+}
 
 
 const getLocalDateString = (date: Date): string => {
@@ -28,64 +44,68 @@ const WEATHER_ICONS: Record<WeatherType, { icon: React.ReactNode; label: string;
 };
 
 const MOODS: { type: MoodType; label: string; icon: string; color: string }[] = [
-  { type: 'joyful', label: 'Joyful', icon: '☀️', color: '#eab308' },
-  { type: 'calm', label: 'Calm', icon: '🍃', color: '#22c55e' },
-  { type: 'reflective', label: 'Reflective', icon: '🌌', color: '#a855f7' },
-  { type: 'tired', label: 'Tired', icon: '💤', color: '#3b82f6' },
-  { type: 'anxious', label: 'Anxious', icon: '☁️', color: '#64748b' }
+  { type: 'joyful',     label: 'Joyful',     icon: '☀️', color: '#FAB514' },   /* Maroona */
+  { type: 'calm',       label: 'Calm',       icon: '🍃', color: '#76C2F0' },   /* Mendung Parah */
+  { type: 'reflective', label: 'Reflective', icon: '🌊', color: '#1A92B4' },   /* Blue Kadestin */
+  { type: 'tired',      label: 'Tired',      icon: '💤', color: '#9EB2C5' },   /* Old Leaf tint */
+  { type: 'anxious',    label: 'Anxious',    icon: '☁️', color: '#FC7C00' }    /* Mendung */
 ];
 
+// Sub-themes: solid Colorista accent colors
 const THEMES = [
-  { id: 'mitsuha', name: 'Mitsuha Twilight', color: '#ec4899' },
-  { id: 'taki', name: 'Taki Daybreak', color: '#06b6d4' },
-  { id: 'comet', name: 'Itomori Comet', color: '#8b5cf6' },
-  { id: 'amber', name: 'Sunny Amber', color: '#f59e0b' }
+  { id: 'ocean',  name: 'Blue Kadestin', color: '#1A92B4' },
+  { id: 'forest', name: 'Mendung Parah', color: '#76C2F0' },
+  { id: 'amber',  name: 'Maroona',       color: '#FAB514' },
+  { id: 'slate',  name: 'Mendung',       color: '#FC7C00' }
 ] as const;
 
-// Per-entry card color presets
+// Per-entry accent color presets (Colorista vivid solid colors)
 const CARD_COLOR_PRESETS = [
-  { label: 'Rose Dawn',    hex: '#f43f5e', gradient: 'linear-gradient(135deg, #f43f5e 0%, #ec4899 50%, #d946ef 100%)' },
-  { label: 'Cyan Ocean',  hex: '#06b6d4', gradient: 'linear-gradient(135deg, #2563eb 0%, #06b6d4 50%, #059669 100%)' },
-  { label: 'Comet',       hex: '#8b5cf6', gradient: 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 50%, #ec4899 100%)' },
-  { label: 'Amber Flame', hex: '#f59e0b', gradient: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #ea580c 100%)' },
-  { label: 'Forest',      hex: '#10b981', gradient: 'linear-gradient(135deg, #059669 0%, #10b981 50%, #06b6d4 100%)' },
-  { label: 'Midnight',    hex: '#6366f1', gradient: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #8b5cf6 100%)' },
-  { label: 'Sakura',      hex: '#fb7185', gradient: 'linear-gradient(135deg, #fb7185 0%, #f43f5e 50%, #f97316 100%)' },
-  { label: 'Lime',        hex: '#84cc16', gradient: 'linear-gradient(135deg, #84cc16 0%, #22c55e 50%, #10b981 100%)' },
-  { label: 'Marigold',    hex: '#f97316', gradient: 'linear-gradient(135deg, #fb923c 0%, #f97316 50%, #eab308 100%)' },
-  { label: 'Slate',       hex: '#94a3b8', gradient: 'linear-gradient(135deg, #94a3b8 0%, #64748b 50%, #475569 100%)' },
+  { label: 'Blue Kadestin', hex: '#1A92B4' },
+  { label: 'Mendung Parah', hex: '#76C2F0' },
+  { label: 'Maroona',       hex: '#FAB514' },
+  { label: 'Mendung',       hex: '#FC7C00' },
+  { label: 'Old Leaf',      hex: '#0B253A' },
+  { label: 'Crimson Red',   hex: '#DC2626' },
+  { label: 'Coral Sunset',  hex: '#FB7185' },
+  { label: 'Mint Green',    hex: '#84CC16' }
 ];
 
 const TEXT_COLORS = [
-  { name: 'Rose', color: '#f43f5e' },
-  { name: 'Orange', color: '#f97316' },
-  { name: 'Amber', color: '#f59e0b' },
-  { name: 'Emerald', color: '#10b981' },
-  { name: 'Sky Blue', color: '#0ea5e9' },
-  { name: 'Violet', color: '#8b5cf6' },
-  { name: 'Pink', color: '#ec4899' },
-  { name: 'White', color: '#ffffff' }
+  { name: 'Default',       color: 'inherit' },
+  { name: 'Blue Kadestin', color: '#1A92B4' },
+  { name: 'Mendung Parah', color: '#76C2F0' },
+  { name: 'Maroona',       color: '#FAB514' },
+  { name: 'Mendung',       color: '#FC7C00' },
+  { name: 'Old Leaf',      color: '#0B253A' },
+  { name: 'Crimson Red',   color: '#DC2626' }
 ];
 
-/**
- * Returns a gradient string for an entry's header banner.
- * Uses the entry's own cardColor if set, falls back to CSS theme variable.
- */
-const getEntryHeaderGradient = (cardColor?: string): string => {
-  if (!cardColor) return 'var(--theme-header-bg)';
-  const preset = CARD_COLOR_PRESETS.find(p => p.hex === cardColor);
-  if (preset) return preset.gradient;
-  // Custom hex: build a linear gradient from the hex color
-  return `linear-gradient(135deg, ${cardColor} 0%, ${cardColor}cc 60%, ${cardColor}88 100%)`;
+/** Returns the solid accent color for an entry's accent strip. */
+const getEntryAccentColor = (cardColor?: string): string => {
+  if (!cardColor) return 'var(--accent)';
+  return cardColor;
 };
 
 function App() {
   const [entries, setEntries] = useState<DiaryEntry[]>(() => DiaryStorageService.getAll());
   const [seeded, setSeeded] = useState(false);
-  const [activeTheme, setActiveTheme] = useState<'mitsuha' | 'taki' | 'comet' | 'amber'>('mitsuha');
+  const [sortOption, setSortOption] = useState<'last_entry' | 'date' | 'name'>('last_entry');
+  const [activeTheme, setActiveTheme] = useState<'ocean' | 'forest' | 'amber' | 'slate'>('ocean');
+  const [customThemeColor, setCustomThemeColor] = useState<string>('#1A92B4');
+  const [isCustomTheme, setIsCustomTheme] = useState<boolean>(false);
+  const [isDark, setIsDark] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [fabRipple, setFabRipple] = useState(false);
 
   // Navigation states
   const [activeTab, setActiveTab] = useState<'entries' | 'calendar'>('entries');
+
+  // Infinite-scroll feed state
+  const INITIAL_VISIBLE = 5;
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // Search & Tag Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -114,6 +134,9 @@ function App() {
   // Edit Mode States
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+
+  // Draft Auto-Save State
+  const [draftToRestore, setDraftToRestore] = useState<DraftData | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -161,10 +184,169 @@ function App() {
   // Selected entry for Hero Morph Modal
   const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
 
-  // Apply Theme attribute to HTML element
+  // Apply Theme + Mode attributes to HTML element
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', activeTheme);
-  }, [activeTheme]);
+    document.documentElement.setAttribute('data-mode', isDark ? 'dark' : 'light');
+
+    const root = document.documentElement;
+    if (isCustomTheme && customThemeColor) {
+      root.style.setProperty('--accent', customThemeColor);
+      root.style.setProperty('--accent-dim', customThemeColor);
+      root.style.setProperty('--accent-muted', customThemeColor);
+      
+      const hex = customThemeColor.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
+        root.style.setProperty('--accent-rgb', `${r}, ${g}, ${b}`);
+      }
+    } else {
+      root.style.removeProperty('--accent');
+      root.style.removeProperty('--accent-dim');
+      root.style.removeProperty('--accent-muted');
+      root.style.removeProperty('--accent-rgb');
+    }
+  }, [activeTheme, isDark, isCustomTheme, customThemeColor]);
+
+  // Mode toggle with radial wipe from toggle button
+  const toggleMode = (e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = ((rect.left + rect.width / 2) / window.innerWidth) * 100;
+    const y = ((rect.top + rect.height / 2) / window.innerHeight) * 100;
+    // Set CSS vars for radial wipe origin
+    const root = document.documentElement;
+    root.style.setProperty('--wipe-x', `${x}%`);
+    root.style.setProperty('--wipe-y', `${y}%`);
+    // Create & animate wipe layer
+    const wipe = document.createElement('div');
+    wipe.className = 'mode-wipe-layer';
+    wipe.style.background = isDark ? 'var(--bg-secondary)' : '#0D0D12';
+    document.body.appendChild(wipe);
+    setTimeout(() => {
+      setIsDark(v => !v);
+      wipe.remove();
+    }, 300);
+  };
+
+
+  // Check for unsaved draft when drawer opens
+  const checkForDraft = (forEditId: string | null = null) => {
+    const saved = localStorage.getItem('aurelius_draft');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as DraftData;
+        const hasContent = parsed.title?.trim() || parsed.content?.trim() || (parsed.tags && parsed.tags.length > 0);
+        
+        // Show restore if it has content AND:
+        // - if we are writing a new entry (forEditId is null) and the draft is also for a new entry (editingEntryId is null)
+        // - OR if we are editing an entry and the draft is for editing the same entry
+        if (hasContent) {
+          const modeMatch = forEditId === null 
+            ? !parsed.isEditMode 
+            : (parsed.isEditMode && parsed.editingEntryId === forEditId);
+            
+          if (modeMatch) {
+            setDraftToRestore(parsed);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse draft:', e);
+      }
+    }
+    setDraftToRestore(null);
+  };
+
+  // Auto-save draft changes
+  useEffect(() => {
+    if (!isDrawerOpen) return;
+    
+    // Check if there is anything meaningful to save
+    const hasContent = title.trim() || content.trim() || tags.length > 0;
+    if (!hasContent) {
+      // If the user cleared everything, remove the draft so we don't save a blank state
+      localStorage.removeItem('aurelius_draft');
+      return;
+    }
+
+    const draftData = {
+      title,
+      content,
+      mood,
+      weather,
+      temperature,
+      location,
+      tags,
+      cardColor,
+      customColorInput,
+      isEditMode,
+      editingEntryId,
+      targetDateString,
+      savedAt: new Date().toISOString()
+    };
+
+    const timer = setTimeout(() => {
+      localStorage.setItem('aurelius_draft', JSON.stringify(draftData));
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [title, content, mood, weather, temperature, location, tags, cardColor, customColorInput, isEditMode, editingEntryId, targetDateString, isDrawerOpen]);
+
+  // Infinite-scroll: watch sentinel at the top of the feed and load more older entries
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsLoadingMore(true);
+          // Small delay so the spinner is briefly visible (feels natural)
+          setTimeout(() => {
+            setVisibleCount(c => c + 5);
+            setIsLoadingMore(false);
+          }, 400);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []); // ref is stable, no deps needed
+
+
+  const handleRestoreDraft = () => {
+    if (!draftToRestore) return;
+    const d = draftToRestore;
+    setTitle(d.title || '');
+    setContent(d.content || '');
+    setMood(d.mood || 'calm');
+    setWeather(d.weather || 'sunny');
+    setTemperature(d.temperature || '24° / 16°');
+    setLocation(d.location || 'Tokyo, Japan');
+    setTags(d.tags || []);
+    setCardColor(d.cardColor);
+    setCustomColorInput(d.customColorInput || '');
+    setIsEditMode(!!d.isEditMode);
+    setEditingEntryId(d.editingEntryId || null);
+    if (d.targetDateString) {
+      setTargetDateString(d.targetDateString);
+    }
+    
+    if (contentRef.current) {
+      contentRef.current.innerHTML = d.content || '';
+    }
+    
+    setDraftToRestore(null);
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem('aurelius_draft');
+    setDraftToRestore(null);
+  };
 
 
 
@@ -218,8 +400,10 @@ function App() {
     if (window.confirm('Are you sure you want to delete all entries?')) {
       localStorage.clear();
       setEntries([]);
+      setSeeded(false);
     }
   };
+
 
   const handleAddTag = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -249,6 +433,7 @@ function App() {
     setCustomColorInput('');
     setIsEditMode(false);
     setEditingEntryId(null);
+    setDraftToRestore(null);
   };
 
   const handleEditorContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -387,6 +572,7 @@ function App() {
       DiaryStorageService.save(newEntry);
     }
 
+    localStorage.removeItem('aurelius_draft');
     setEntries(DiaryStorageService.getAll());
     setIsDrawerOpen(false);
     setSelectedEntry(null);
@@ -403,11 +589,7 @@ function App() {
       setWeather(w.weatherType);
     } catch (error) {
       console.error('Auto detection failed:', error);
-      if (activeTheme === 'taki') {
-        setLocation('Tokyo, Japan');
-      } else {
-        setLocation('Itomori, Gifu, JAPAN');
-      }
+      setLocation('Tokyo, Japan');
     } finally {
       setIsLoadingWeather(false);
     }
@@ -417,14 +599,11 @@ function App() {
     setTargetDateString(dateStr);
     resetForm();
     setIsDrawerOpen(true);
+    checkForDraft(null);
     if (isAutoDetect) {
       fetchAutoDetectInfo();
     } else {
-      if (activeTheme === 'taki') {
-        setLocation('Tokyo, Japan');
-      } else {
-        setLocation('Itomori, Gifu, JAPAN');
-      }
+      setLocation('Tokyo, Japan');
     }
   };
 
@@ -444,18 +623,8 @@ function App() {
     setIsAutoDetect(false); // Don't auto-detect when editing; keep saved values
     setSelectedEntry(null);
     setIsDrawerOpen(true);
+    checkForDraft(entry.id);
   };
-
-  // Generate date list: last 7 days including today
-  const datesList = (() => {
-    const list = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      list.push(d);
-    }
-    return list;
-  })();
 
   // Calendar Engine: Generate grid arrays for the currentMonth/currentYear
   const calendarCells = (() => {
@@ -516,7 +685,7 @@ function App() {
   };
 
   // Filter entries based on search queries
-  const filteredEntries = entries.filter((entry) => {
+  const baseFilteredEntries = entries.filter((entry) => {
     const matchesQuery = searchQuery.trim() === '' || 
       entry.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       entry.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -526,6 +695,20 @@ function App() {
 
     return matchesQuery && matchesTag;
   });
+
+  const sortEntriesArray = (arr: DiaryEntry[]) => {
+    return arr.slice().sort((a, b) => {
+      if (sortOption === 'name') {
+        return a.title.localeCompare(b.title);
+      } else if (sortOption === 'date') {
+        return new Date(b.dateString).getTime() - new Date(a.dateString).getTime();
+      } else {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+    });
+  };
+
+  const filteredEntries = sortEntriesArray(baseFilteredEntries);
 
   // Unique tags across all entries
   const allUniqueTags = Array.from(new Set(entries.flatMap(e => e.tags)));
@@ -552,249 +735,178 @@ function App() {
       flexDirection: 'column',
       alignItems: 'center',
       minHeight: '100vh',
-      padding: '2.5rem 1.5rem',
+      paddingBottom: '6rem',
       position: 'relative',
-      overflowX: 'hidden'
+      overflowX: 'hidden',
+      background: 'var(--bg-primary)',
+      transition: 'background 0.6s ease'
     }}>
-      {/* Background glow orb */}
-      <div style={{
-        position: 'absolute',
-        top: '10%',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        width: '500px',
-        height: '500px',
-        background: 'radial-gradient(circle, var(--accent-color) 0%, transparent 70%)',
-        opacity: 0.1,
-        filter: 'blur(90px)',
-        pointerEvents: 'none',
-        zIndex: 0
-      }} />
-
-      {/* Header Container */}
-      <header style={{
+      {/* Drifting Abstract Background Shapes */}
+      <div className="bg-shapes-container">
+        <div className="bg-shape circle-shape" />
+        <div className="bg-shape semi-shape" />
+        <div className="bg-shape triangle-shape" />
+        <div className="bg-shape square-shape" />
+      </div>
+      {/* ─── STICKY FROSTED HEADER ─────────────────────────── */}
+      <header className="app-header logo-animate" style={{
         width: '100%',
-        maxWidth: '720px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1.25rem',
-        marginBottom: '2.5rem',
-        zIndex: 1
+        padding: '14px 24px',
+        marginBottom: '0',
+        zIndex: 50
       }}>
-        {/* Row 1: Logo & Seeds */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <div style={{
-              background: 'var(--accent-gradient)',
-              borderRadius: '10px',
-              padding: '0.45rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <BookOpen size={18} color="#fff" />
+        <div style={{
+          maxWidth: '720px',
+          margin: '0 auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px'
+        }}>
+          {/* Row 1: Logo + Mode Toggle + Settings */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {/* Wordmark */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="logo-badge">
+                <BookOpen size={18} color="#fff" />
+              </div>
+              <h1 style={{
+                fontFamily: 'var(--font-serif)',
+                fontSize: '1.65rem',
+                fontWeight: 700,
+                letterSpacing: '-0.5px',
+                color: 'var(--text-primary)'
+              }}>
+                Aurelius
+              </h1>
             </div>
-            <h1 style={{
-              fontFamily: 'var(--font-serif)',
-              fontSize: '1.6rem',
-              fontWeight: 600,
-              letterSpacing: '-0.5px'
-            }}>
-              Aurelius
-            </h1>
-          </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <button
-              onClick={handleSeed}
-              style={{
-                padding: '0.5rem 0.85rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border-subtle)',
-                background: seeded ? 'rgba(34, 197, 94, 0.1)' : 'var(--bg-card)',
-                color: seeded ? '#22c55e' : 'var(--text-secondary)',
-                fontSize: '0.8rem',
-                fontWeight: 500,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.3rem',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {seeded ? <Check size={14} /> : <PlusCircle size={14} />}
-              {seeded ? 'Seeded!' : 'Seed Demo'}
-            </button>
+            {/* Right controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Mode toggle */}
+              <div
+                className={`mode-toggle-track ${!isDark ? 'on' : ''}`}
+                onClick={toggleMode}
+                title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                role="switch"
+                aria-checked={!isDark}
+              >
+                <div className={`mode-toggle-thumb ${!isDark ? 'on' : ''}`}>
+                  <span className="mode-toggle-icon" style={{ fontSize: '10px' }}>
+                    {isDark ? '🌙' : '☀️'}
+                  </span>
+                </div>
+              </div>
 
-            {entries.length > 0 && (
+              {/* Settings button */}
               <button
-                onClick={handleClearAll}
+                onClick={() => setIsSettingsOpen(true)}
                 style={{
-                  padding: '0.5rem 0.85rem',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  background: 'rgba(239, 68, 68, 0.05)',
-                  color: '#ef4444',
-                  fontSize: '0.8rem',
-                  fontWeight: 500,
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text-secondary)',
                   cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   transition: 'all 0.2s ease'
                 }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                title="Settings"
               >
-                Clear
+                <Menu size={16} />
               </button>
+            </div>
+          </div>
+
+          {/* Row 2: Pill Tabs + Entry Count */}
+          <div className="nav-animate" style={{ animationDelay: '60ms', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div className="tab-bar" style={{ width: 'fit-content' }}>
+              <button
+                onClick={() => setActiveTab('entries')}
+                className={`tab-button ${activeTab === 'entries' ? 'active' : ''}`}
+              >
+                {activeTab === 'entries' && (
+                  <motion.div
+                    layoutId="activeTabIndicator"
+                    className="tab-indicator"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
+                Entries
+              </button>
+              <button
+                onClick={() => setActiveTab('calendar')}
+                className={`tab-button ${activeTab === 'calendar' ? 'active' : ''}`}
+              >
+                {activeTab === 'calendar' && (
+                  <motion.div
+                    layoutId="activeTabIndicator"
+                    className="tab-indicator"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
+                Calendar
+              </button>
+            </div>
+            {entries.length > 0 && (
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+              </span>
             )}
-          </div>
-        </div>
-
-        {/* Row 2: Tabs Switcher (Segmented Control matching Anime Screen) */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '1rem' }}>
-          <div className="tab-bar" style={{ width: '260px' }}>
-            <button
-              onClick={() => setActiveTab('entries')}
-              className={`tab-button ${activeTab === 'entries' ? 'active' : ''}`}
-            >
-              Entries
-              {activeTab === 'entries' && (
-                <motion.div
-                  layoutId="activeTabIndicator"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'var(--accent-gradient)',
-                    borderRadius: '11px',
-                    zIndex: -1
-                  }}
-                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                />
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTab('calendar')}
-              className={`tab-button ${activeTab === 'calendar' ? 'active' : ''}`}
-            >
-              Calendar
-              {activeTab === 'calendar' && (
-                <motion.div
-                  layoutId="activeTabIndicator"
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: 'var(--accent-gradient)',
-                    borderRadius: '11px',
-                    zIndex: -1
-                  }}
-                  transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                />
-              )}
-            </button>
-          </div>
-
-          {/* Theme Switcher Ribbon */}
-          <div style={{ display: 'flex', gap: '0.35rem', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-subtle)', padding: '0.2rem', borderRadius: '10px' }}>
-            {THEMES.map((theme) => {
-              const isSelected = activeTheme === theme.id;
-              return (
-                <button
-                  key={theme.id}
-                  onClick={() => setActiveTheme(theme.id)}
-                  title={theme.name}
-                  style={{
-                    width: '18px',
-                    height: '18px',
-                    borderRadius: '50%',
-                    backgroundColor: theme.color,
-                    cursor: 'pointer',
-                    border: '2px solid',
-                    borderColor: isSelected ? '#ffffff' : 'transparent',
-                    boxShadow: isSelected ? '0 0 10px var(--accent-color)' : 'none',
-                    transition: 'all 0.15s ease'
-                  }}
-                />
-              );
-            })}
           </div>
         </div>
       </header>
 
-      {/* Main Tab Contents */}
-      <main style={{ width: '100%', maxWidth: '720px', zIndex: 1, minHeight: '60vh' }}>
+      {/* ─── MAIN CONTENT ──────────────────────────────────── */}
+      <main style={{ width: '100%', maxWidth: '720px', padding: '24px 24px 0', zIndex: 1, minHeight: '60vh' }}>
+
         
         {/* TAB 1: ENTRIES FEED */}
         {activeTab === 'entries' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
-            {/* Search and Tag Ribbon overlays */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.75rem',
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '16px',
-              padding: '1.25rem'
-            }}>
+            {/* Search and Tag Ribbon */}
+            <div className="solid-card" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {/* Search Bar */}
-              <div style={{ position: 'relative', width: '100%' }}>
-                <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <div className="search-container">
+                <Search size={16} className="search-icon" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search title, story, tags..."
-                  className="form-input"
-                  style={{ paddingLeft: '2.75rem' }}
+                  className="search-input"
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                    style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', cursor: 'pointer' }}
                   >
-                    <X size={16} />
+                    <X size={15} />
                   </button>
                 )}
               </div>
 
-              {/* Tag filters strip */}
+              {/* Tag filters */}
               {allUniqueTags.length > 0 && (
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.25rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: '0.25rem' }}>
-                    Tags:
-                  </span>
-                  {allUniqueTags.map(tag => {
-                    const isSelected = selectedTag === tag;
-                    return (
-                      <button
-                        key={tag}
-                        onClick={() => setSelectedTag(isSelected ? null : tag)}
-                        style={{
-                          fontSize: '0.75rem',
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: '6px',
-                          border: '1px solid',
-                          borderColor: isSelected ? 'var(--accent-color)' : 'var(--border-subtle)',
-                          background: isSelected ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.15)',
-                          color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                      >
-                        #{tag}
-                      </button>
-                    );
-                  })}
-                  {selectedTag && (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Tags:</span>
+                  {allUniqueTags.map(tag => (
                     <button
-                      onClick={() => setSelectedTag(null)}
-                      style={{ fontSize: '0.7rem', color: 'var(--accent-color)', cursor: 'pointer', fontWeight: 600, marginLeft: '0.25rem' }}
+                      key={tag}
+                      onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+                      className={`tag-chip ${selectedTag === tag ? 'selected' : ''}`}
                     >
-                      Clear Filter
+                      #{tag}
+                    </button>
+                  ))}
+                  {selectedTag && (
+                    <button onClick={() => setSelectedTag(null)} style={{ fontSize: '0.7rem', color: 'var(--accent)', cursor: 'pointer', fontWeight: 700, marginLeft: '4px' }}>
+                      Clear ×
                     </button>
                   )}
                 </div>
@@ -809,196 +921,222 @@ function App() {
               layout
               style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}
             >
-              {/* If search/tag filtering is active, only show cards matching, otherwise full 7-day calendar tiles */}
               {(searchQuery || selectedTag) ? (
                 filteredEntries.length > 0 ? (
-                  filteredEntries.map((entry) => {
+                  filteredEntries.map((entry, idx) => {
                     const parsedDate = parseLocalDate(entry.dateString);
+                    const moodData = MOODS.find(m => m.type === entry.mood);
+                    const accentColor = entry.cardColor ?? moodData?.color ?? 'var(--accent)';
                     return (
                       <motion.article
                         key={entry.id}
                         layout
                         variants={itemVariants}
-                        onClick={() => setSelectedEntry(entry)}
-                        style={{
-                          display: 'flex',
-                          gap: '1.25rem',
-                          alignItems: 'stretch',
-                          width: '100%'
-                        }}
+                        className="io-card"
+                        style={{ display: 'flex', gap: '16px', alignItems: 'stretch', width: '100%', animationDelay: `${idx * 60}ms` }}
                       >
-                        {/* Left date digits */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '64px', flexShrink: 0 }}>
-                          <span style={{ fontSize: '2.5rem', fontWeight: 700, lineHeight: 1, color: 'var(--accent-color)' }}>
-                            {parsedDate.getDate().toString().padStart(2, '0')}
-                          </span>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                            {parsedDate.toLocaleDateString(undefined, { weekday: 'short' })}
-                          </span>
+                        {/* Date column */}
+                        <div className="date-column">
+                          <span className="date-day-number" style={{ color: accentColor }}>{parsedDate.getDate().toString().padStart(2, '0')}</span>
+                          <span className="date-day-label">{parsedDate.toLocaleDateString(undefined, { weekday: 'short' })}</span>
                         </div>
 
-                        {/* Right card content */}
+                        {/* Card */}
                         <div
-                          style={{
-                            flex: 1,
-                            background: 'var(--bg-card)',
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: '16px',
-                            padding: '1.25rem 1.5rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '0.5rem',
-                            position: 'relative'
-                          }}
+                          className="entry-card"
+                          style={{ flex: 1, '--card-accent': accentColor } as React.CSSProperties}
+                          onClick={() => setSelectedEntry(entry)}
                         >
+                          {/* Meta pill */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                              <span style={{ fontWeight: 600 }}>
-                                {new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}
-                              </span>
-                              <span>•</span>
+                            <div className="entry-meta-pill">
+                              <span>{new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                              <span className="entry-meta-dot">•</span>
                               <span>{WEATHER_ICONS[entry.weather]?.emoji} {WEATHER_ICONS[entry.weather]?.label}</span>
-                              <span>•</span>
-                              <span>{MOODS.find(m => m.type === entry.mood)?.icon} {MOODS.find(m => m.type === entry.mood)?.label}</span>
+                              <span className="entry-meta-dot">•</span>
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: moodData?.color, display: 'inline-block', flexShrink: 0 }} />
+                              <span>{moodData?.label}</span>
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelete(entry.id); }}
-                              style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem', borderRadius: '4px' }}
-                              onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; }}
+                              style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: '6px', flexShrink: 0 }}
+                              onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
                               onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={13} />
                             </button>
                           </div>
-                          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600 }}>{entry.title}</h2>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{entry.content}</p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            <MapPin size={10} />
-                            <span>{entry.location}</span>
+
+                          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)' }}>{entry.title}</h2>
+                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.6, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {stripMarkdown(entry.content)}
+                          </p>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              <MapPin size={10} />
+                              <span>{entry.location}</span>
+                            </div>
+                            <span className="view-arrow">View →</span>
                           </div>
                         </div>
                       </motion.article>
                     );
                   })
                 ) : (
-                  <div style={{ textAlign: 'center', padding: '3rem', border: '1px dashed var(--border-subtle)', borderRadius: '16px', color: 'var(--text-muted)' }}>
-                    <span>No matches found. Try modifying your query...</span>
+                  <div style={{ textAlign: 'center', padding: '3rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius-card)', color: 'var(--text-muted)' }}>
+                    No matches found. Try modifying your query...
                   </div>
                 )
-              ) : (
-                datesList.map((dateObj) => {
-                  const dateStr = getLocalDateString(dateObj);
-                  const matchingEntry = entries.find(e => e.dateString === dateStr);
+              ) : (() => {
+                // All entries sorted according to sortOption, only real entries
+                const sortedEntries = sortEntriesArray(entries);
+                const shownEntries = sortedEntries.slice(0, visibleCount);
+                const hasMore = sortedEntries.length > visibleCount;
 
+
+                if (sortedEntries.length === 0) {
                   return (
-                    <motion.article
-                      key={dateStr}
-                      layout
+                    <motion.div
                       variants={itemVariants}
+                      onClick={() => openWriterForDate(getLocalDateString(new Date()))}
                       style={{
+                        border: '2px dashed var(--border-subtle)',
+                        borderRadius: '16px',
+                        padding: '3.5rem 2rem',
                         display: 'flex',
-                        gap: '1.25rem',
-                        alignItems: 'stretch',
-                        width: '100%'
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '1rem',
+                        cursor: 'pointer',
+                        color: 'var(--text-secondary)',
+                        transition: 'all 0.25s ease'
                       }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-color)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
                     >
-                      {/* Left Date Column */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', width: '64px', flexShrink: 0 }}>
-                        <span style={{
-                          fontFamily: 'var(--font-sans)',
-                          fontSize: '2.5rem',
-                          fontWeight: 700,
-                          lineHeight: 1,
-                          color: matchingEntry ? (matchingEntry.cardColor ?? 'var(--accent-color)') : 'var(--text-muted)',
-                          transition: 'color 0.25s ease'
-                        }}>
-                          {dateObj.getDate().toString().padStart(2, '0')}
-                        </span>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
-                          {dateObj.toLocaleDateString(undefined, { weekday: 'short' })}
-                        </span>
+                      <PlusCircle size={36} color="var(--accent-color)" />
+                      <div style={{ textAlign: 'center' }}>
+                        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.15rem', fontWeight: 600, margin: 0 }}>No entries yet</h3>
+                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.35rem 0 0' }}>Click here or tap the pen button to write your first entry</p>
                       </div>
+                    </motion.div>
+                  );
+                }
 
-                      {/* Right Card Column */}
-                      {matchingEntry ? (
-                        <div
-                          onClick={() => setSelectedEntry(matchingEntry)}
-                          style={{
-                            flex: 1,
-                            background: 'var(--bg-card)',
-                            border: `1px solid ${matchingEntry.cardColor ? matchingEntry.cardColor + '60' : 'var(--border-subtle)'}`,
-                            borderRadius: '16px',
-                            padding: '1.25rem 1.5rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '0.5rem',
-                            position: 'relative',
-                            boxShadow: matchingEntry.cardColor ? `0 0 0 0 ${matchingEntry.cardColor}20` : 'none',
-                            transition: 'box-shadow 0.2s ease'
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                              <span style={{ fontWeight: 600 }}>
-                                {new Date(matchingEntry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}
-                              </span>
-                              <span>•</span>
-                              <span>{WEATHER_ICONS[matchingEntry.weather]?.emoji} {WEATHER_ICONS[matchingEntry.weather]?.label}</span>
-                              {matchingEntry.temperature && (
-                                <>
-                                  <span>•</span>
-                                  <span>{matchingEntry.temperature}</span>
-                                </>
-                              )}
-                              <span>•</span>
-                              <span>{MOODS.find(m => m.type === matchingEntry.mood)?.icon} {MOODS.find(m => m.type === matchingEntry.mood)?.label}</span>
-                            </div>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDelete(matchingEntry.id); }}
-                              style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem', borderRadius: '4px' }}
-                              onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; }}
-                              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 600 }}>{matchingEntry.title}</h2>
-                          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.5', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', whiteSpace: 'pre-wrap' }}>
-                            {stripMarkdown(matchingEntry.content)}
-                          </p>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            <MapPin size={10} />
-                            <span>{matchingEntry.location}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div
-                          onClick={() => openWriterForDate(dateStr)}
-                          style={{
-                            flex: 1,
-                            border: '1px dashed var(--border-subtle)',
-                            borderRadius: '16px',
+                return (
+                  <>
+                    {/* Infinite-scroll sentinel — IntersectionObserver watches this */}
+                    {hasMore && (
+                      <>
+                        <div ref={sentinelRef} style={{ height: '1px', width: '100%' }} />
+                        {isLoadingMore && (
+                          <div style={{
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '1.25rem 1.5rem',
-                            cursor: 'pointer',
+                            justifyContent: 'center',
+                            gap: '0.5rem',
+                            padding: '0.6rem',
                             color: 'var(--text-muted)',
-                            transition: 'all 0.25s ease'
-                          }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-color)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                            fontSize: '0.78rem',
+                            fontWeight: 500
+                          }}>
+                            <span style={{
+                              width: '14px',
+                              height: '14px',
+                              border: '2px solid var(--border-subtle)',
+                              borderTopColor: 'var(--accent-color)',
+                              borderRadius: '50%',
+                              display: 'inline-block',
+                              animation: 'spin 0.7s linear infinite'
+                            }} />
+                            Loading older entries…
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Entry cards – newest at bottom of list, oldest loaded at top */}
+                {shownEntries.slice().reverse().map((entry, idx) => {
+                      const parsedDate = parseLocalDate(entry.dateString);
+                      const moodData = MOODS.find(m => m.type === entry.mood);
+                      const accentColor = entry.cardColor ?? moodData?.color ?? 'var(--accent)';
+                      return (
+                        <motion.article
+                          key={entry.id}
+                          layout
+                          variants={itemVariants}
+                          className="io-card"
+                          style={{ display: 'flex', gap: '16px', alignItems: 'stretch', width: '100%' }}
                         >
-                          <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>No entry written yet...</span>
-                          <PlusCircle size={18} />
-                        </div>
-                      )}
-                    </motion.article>
-                  );
-                })
-              )}
+                          {/* Date column */}
+                          <div className="date-column">
+                            <span className="date-day-number" style={{ color: accentColor, animationDelay: `${idx * 40}ms` }}>
+                              {parsedDate.getDate().toString().padStart(2, '0')}
+                            </span>
+                            <span className="date-day-label">{parsedDate.toLocaleDateString(undefined, { weekday: 'short' })}</span>
+                          </div>
+
+                          {/* Entry card */}
+                          <div
+                            className="entry-card"
+                            style={{ flex: 1, '--card-accent': accentColor } as React.CSSProperties}
+                            onClick={() => setSelectedEntry(entry)}
+                          >
+                            {/* Meta pill row */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div className="entry-meta-pill">
+                                <span>{new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
+                                <span className="entry-meta-dot">•</span>
+                                <span>{WEATHER_ICONS[entry.weather]?.emoji} {WEATHER_ICONS[entry.weather]?.label}</span>
+                                {entry.temperature && (<><span className="entry-meta-dot">•</span><span>{entry.temperature}</span></>)}
+                                <span className="entry-meta-dot">•</span>
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: moodData?.color, display: 'inline-block', flexShrink: 0 }} />
+                                <span>{moodData?.label}</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleEditEntry(entry); }}
+                                  style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: '6px' }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-subtle)'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
+                                  title="Edit"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(entry.id); }}
+                                  style={{ color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: '6px', flexShrink: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'none'; }}
+                                  title="Delete"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{entry.title}</h2>
+
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.6, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                              {stripMarkdown(entry.content)}
+                            </p>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                <MapPin size={9} />
+                                <span>{entry.location}</span>
+                              </div>
+                              <span className="view-arrow">View →</span>
+                            </div>
+                          </div>
+                        </motion.article>
+                      );
+                    })}
+                  </>
+                );
+              })()}
             </motion.div>
           </div>
         )}
@@ -1123,6 +1261,22 @@ function App() {
         )}
       </main>
 
+      {/* FAB — Floating Action Button */}
+      <button
+        className="fab-btn"
+        onClick={(e) => {
+          setFabRipple(true);
+          setTimeout(() => setFabRipple(false), 600);
+          openWriterForDate(getLocalDateString(new Date()));
+          void e;
+        }}
+        title="Write Today's Entry"
+        aria-label="Write new diary entry"
+      >
+        {fabRipple && <span className="fab-ripple" />}
+        <PenTool size={22} color="#ffffff" />
+      </button>
+
       {/* Side Creator Drawer Overlay and Panel */}
       <AnimatePresence>
         {isDrawerOpen && (
@@ -1152,6 +1306,7 @@ function App() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 24, stiffness: 200 }}
+              className="settings-panel"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -1159,9 +1314,6 @@ function App() {
                 bottom: 0,
                 width: '100%',
                 maxWidth: '520px',
-                backgroundColor: '#08080a',
-                borderLeft: '1px solid var(--border-subtle)',
-                boxShadow: '-10px 0 40px rgba(0, 0, 0, 0.7)',
                 zIndex: 101,
                 padding: '2.5rem 2rem',
                 display: 'flex',
@@ -1202,6 +1354,96 @@ function App() {
                 </button>
               </div>
 
+              {/* Draft Restore Banner */}
+              <AnimatePresence>
+                {draftToRestore && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: -10, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    style={{
+                      overflow: 'hidden',
+                      marginBottom: '1.5rem'
+                    }}
+                  >
+                    <div style={{
+                      background: 'rgba(217, 119, 6, 0.08)',
+                      border: '1px solid rgba(217, 119, 6, 0.2)',
+                      borderLeft: '4px solid #d97706',
+                      borderRadius: '12px',
+                      padding: '1rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
+                        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>📝</span>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f59e0b', margin: 0 }}>
+                            Unsaved Draft Found
+                          </p>
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+                            We found an auto-saved draft from {(() => {
+                              const dt = draftToRestore.savedAt ? new Date(draftToRestore.savedAt) : new Date();
+                              return `${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} on ${dt.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+                            })()}.
+                          </p>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignSelf: 'flex-end' }}>
+                        <button
+                          type="button"
+                          onClick={handleRestoreDraft}
+                          style={{
+                            padding: '0.4rem 0.8rem',
+                            borderRadius: '8px',
+                            background: '#d97706',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#b45309'}
+                          onMouseLeave={e => e.currentTarget.style.background = '#d97706'}
+                        >
+                          Restore Draft
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDiscardDraft}
+                          style={{
+                            padding: '0.4rem 0.8rem',
+                            borderRadius: '8px',
+                            background: 'transparent',
+                            color: 'var(--text-secondary)',
+                            border: '1px solid var(--border-subtle)',
+                            fontSize: '0.75rem',
+                            fontWeight: 500,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                            e.currentTarget.style.color = '#ef4444';
+                            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                            e.currentTarget.style.color = 'var(--text-secondary)';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Form */}
               <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
                 
@@ -1210,8 +1452,8 @@ function App() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  background: 'rgba(255,255,255,0.01)',
-                  border: '1px solid var(--border-subtle)',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--border)',
                   borderRadius: '12px',
                   padding: '0.75rem 1rem'
                 }}>
@@ -1225,7 +1467,7 @@ function App() {
                         width: '16px',
                         height: '16px',
                         cursor: 'pointer',
-                        accentColor: 'var(--accent-color)'
+                        accentColor: 'var(--accent)'
                       }}
                     />
                     <label htmlFor="autoDetectLocationWeather" style={{ fontSize: '0.825rem', fontWeight: 500, color: 'var(--text-secondary)', cursor: 'pointer' }}>
@@ -1254,6 +1496,22 @@ function App() {
                       <RefreshCw size={12} className={isLoadingWeather ? 'spin-anim' : ''} />
                     </button>
                   )}
+                </div>
+
+                {/* Date Selection */}
+                <div>
+                  <label className="form-label">Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={targetDateString}
+                    onChange={(e) => setTargetDateString(e.target.value)}
+                    className="form-input"
+                    style={{
+                      fontFamily: 'var(--font-sans)',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
                 </div>
 
                 {/* Title */}
@@ -1310,8 +1568,8 @@ function App() {
                             padding: '0.5rem',
                             borderRadius: '8px',
                             border: '1px solid',
-                            borderColor: isSelected ? 'var(--accent-color)' : 'var(--border-subtle)',
-                            background: isSelected ? 'rgba(255,255,255,0.05)' : 'var(--bg-card)',
+                            borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                            background: isSelected ? 'var(--accent-subtle)' : 'var(--bg-card)',
                             cursor: 'pointer',
                             fontSize: '0.8rem',
                             display: 'flex',
@@ -1443,8 +1701,8 @@ function App() {
                             style={{
                               fontSize: '0.75rem',
                               color: 'var(--text-primary)',
-                              background: 'rgba(255, 255, 255, 0.05)',
-                              border: '1px solid var(--border-subtle)',
+                              background: 'var(--bg-active)',
+                              border: '1px solid var(--border)',
                               padding: '0.2rem 0.5rem',
                               borderRadius: '6px',
                               display: 'inline-flex',
@@ -1481,11 +1739,11 @@ function App() {
                       height: '44px',
                       borderRadius: '10px',
                       background: customColorInput.trim()
-                        ? `linear-gradient(135deg, ${customColorInput.trim()} 0%, ${customColorInput.trim()}cc 60%, ${customColorInput.trim()}88 100%)`
+                        ? customColorInput.trim()
                         : cardColor
-                          ? getEntryHeaderGradient(cardColor)
-                          : 'var(--theme-header-bg)',
-                      border: '1px solid rgba(255,255,255,0.1)',
+                          ? getEntryAccentColor(cardColor)
+                          : 'var(--accent)',
+                      border: '1px solid var(--border)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -1509,8 +1767,8 @@ function App() {
                           width: '28px',
                           height: '28px',
                           borderRadius: '50%',
-                          border: `2px solid ${!cardColor && !customColorInput.trim() ? '#ffffff' : 'rgba(255,255,255,0.15)'}`,
-                          background: 'rgba(255,255,255,0.05)',
+                          border: `2px solid ${!cardColor && !customColorInput.trim() ? 'var(--text-primary)' : 'var(--border)'}`,
+                          background: 'var(--bg-active)',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
@@ -1536,7 +1794,7 @@ function App() {
                               borderRadius: '50%',
                               backgroundColor: preset.hex,
                               cursor: 'pointer',
-                              border: `2px solid ${isSelected ? '#ffffff' : 'transparent'}`,
+                              border: `2px solid ${isSelected ? 'var(--text-primary)' : 'transparent'}`,
                               boxShadow: isSelected ? `0 0 0 2px ${preset.hex}` : 'none',
                               transition: 'all 0.15s ease',
                               flexShrink: 0
@@ -1550,7 +1808,7 @@ function App() {
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <input
                         type="color"
-                        value={customColorInput.trim() || cardColor || '#ec4899'}
+                        value={customColorInput.trim() || cardColor || '#3B82F6'}
                         onChange={(e) => { setCustomColorInput(e.target.value); setCardColor(undefined); }}
                         style={{
                           width: '38px',
@@ -1621,6 +1879,315 @@ function App() {
         )}
       </AnimatePresence>
 
+      {/* Settings Side Drawer */}
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.6 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSettingsOpen(false)}
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: '#000000',
+                zIndex: 100,
+                backdropFilter: 'blur(4px)'
+              }}
+            />
+
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 24, stiffness: 200 }}
+              className="settings-panel"
+              style={{
+                position: 'fixed',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: '100%',
+                maxWidth: '400px',
+                zIndex: 101,
+                padding: '2.5rem 2rem',
+                display: 'flex',
+                flexDirection: 'column',
+                overflowY: 'auto'
+              }}
+            >
+              {/* Drawer Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Settings size={18} color="var(--accent-color)" />
+                  <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.5rem', fontWeight: 600 }}>
+                    Settings
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setIsSettingsOpen(false)}
+                  style={{
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    borderRadius: '50%',
+                    padding: '0.35rem',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease',
+                    background: 'transparent'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--border-subtle)'}
+                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Settings Sections */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', flex: 1 }}>
+                
+                {/* 1. Mode Toggle */}
+                <div>
+                  <label className="form-label">Appearance</label>
+                  <div style={{
+                    marginTop: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '14px',
+                    padding: '14px 18px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '1.1rem' }}>{isDark ? '🌙' : '☀️'}</span>
+                      <div>
+                        <p style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{isDark ? 'Dark Mode' : 'Light Mode'}</p>
+                        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>{isDark ? 'Easy on the eyes at night' : 'Clear and bright'}</p>
+                      </div>
+                    </div>
+                    <div
+                      className={`mode-toggle-track ${!isDark ? 'on' : ''}`}
+                      onClick={toggleMode}
+                      role="switch"
+                      aria-checked={!isDark}
+                    >
+                      <div className={`mode-toggle-thumb ${!isDark ? 'on' : ''}`}>
+                        <span className="mode-toggle-icon" style={{ fontSize: '10px' }}>{isDark ? '🌙' : '☀️'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Palette Chooser (Horizontal Row) */}
+                <div>
+                  <label className="form-label">Theme Palette</label>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-around',
+                    gap: '8px',
+                    marginTop: '10px',
+                    padding: '16px',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '16px'
+                  }}>
+                    {THEMES.map((theme) => {
+                      const isSelected = !isCustomTheme && activeTheme === theme.id;
+                      return (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          onClick={() => {
+                            setIsCustomTheme(false);
+                            setActiveTheme(theme.id);
+                          }}
+                          title={theme.name}
+                          className={`theme-swatch ${isSelected ? 'selected' : ''}`}
+                          style={{
+                            background: theme.color,
+                            '--swatch-color': theme.color
+                          } as React.CSSProperties}
+                        >
+                          {isSelected && <Check size={18} color="var(--text-on-accent)" />}
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom Color Picker Swatch */}
+                    <div
+                      style={{
+                        position: 'relative',
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
+                        cursor: 'pointer',
+                        border: `2px solid ${isCustomTheme ? 'var(--text-primary)' : 'transparent'}`,
+                        transition: 'transform 0.18s ease, border-color 0.18s ease',
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: isCustomTheme ? customThemeColor : 'conic-gradient(red, yellow, green, cyan, blue, magenta, red)',
+                      }}
+                      title="Custom Accent Color"
+                    >
+                      <input
+                        type="color"
+                        value={customThemeColor}
+                        onChange={(e) => {
+                          setIsCustomTheme(true);
+                          setCustomThemeColor(e.target.value);
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          opacity: 0,
+                          cursor: 'pointer',
+                        }}
+                      />
+                      {isCustomTheme && <Check size={18} color="#ffffff" />}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sort Option */}
+                <div>
+                  <label className="form-label">Sort Entries</label>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    marginTop: '0.5rem'
+                  }}>
+                    {(['last_entry', 'date', 'name'] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setSortOption(opt)}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '0.75rem 1rem',
+                          borderRadius: '12px',
+                          background: sortOption === opt ? 'var(--accent-subtle)' : 'transparent',
+                          border: '1px solid',
+                          borderColor: sortOption === opt ? 'var(--accent)' : 'var(--border)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          textAlign: 'left'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: sortOption === opt ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          {opt === 'last_entry' ? 'Last Entry (Default)' : opt === 'date' ? 'Date (Journal)' : 'Name (Alphabetical)'}
+                        </span>
+                        {sortOption === opt && <Check size={14} color="var(--accent)" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Demo Data Actions */}
+                <div>
+                  <label className="form-label">Actions</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
+                    <button
+                      onClick={() => {
+                        handleSeed();
+                        setIsSettingsOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border)',
+                        background: seeded ? 'var(--success-subtle)' : 'var(--bg-card)',
+                        color: seeded ? 'var(--success)' : 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                        fontWeight: 500,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      {seeded ? <Check size={16} /> : <PlusCircle size={16} />}
+                      {seeded ? 'Seeded Successfully!' : 'Seed Demo entries'}
+                    </button>
+
+                    {entries.length > 0 && (
+                      <button
+                        className="danger-btn"
+                        onClick={() => {
+                          if (confirm('Are you sure you want to clear all entries? This cannot be undone.')) {
+                            handleClearAll();
+                            setIsSettingsOpen(false);
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '0.75rem 1rem',
+                          borderRadius: '12px',
+                          border: '1px solid var(--danger-border)',
+                          background: 'var(--danger-subtle)',
+                          color: 'var(--danger)',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '0.5rem',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <Trash2 size={15} />
+                        Clear All Data
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Journal Statistics */}
+                <div style={{
+                  marginTop: 'auto',
+                  borderTop: '1px solid var(--border-subtle)',
+                  paddingTop: '1.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <span>Total Entries</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{entries.length}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    <span>Active Tags</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{allUniqueTags.length}</span>
+                  </div>
+                </div>
+
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Fullscreen Reading Hero Morph Modal */}
       <AnimatePresence>
         {selectedEntry && (
@@ -1661,20 +2228,20 @@ function App() {
                 style={{
                   width: '100%',
                   maxWidth: '520px',
-                  backgroundColor: '#0c0c0e',
-                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
                   borderRadius: '24px',
                   display: 'flex',
                   flexDirection: 'column',
                   position: 'relative',
-                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
+                  boxShadow: 'var(--shadow-lg)',
                   maxHeight: '85vh',
                   overflow: 'hidden'
                 }}
               >
-                {/* Colored Header Block (Your Name design) */}
+                {/* Colored Header Block */}
                 <div style={{
-                  background: getEntryHeaderGradient(selectedEntry.cardColor),
+                  background: getEntryAccentColor(selectedEntry.cardColor),
                   padding: '2.5rem 2rem 2rem',
                   position: 'relative',
                   color: '#ffffff',
@@ -1729,6 +2296,7 @@ function App() {
                     }}
                     onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
                     onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                    title="Close"
                   >
                     <X size={16} />
                   </button>
@@ -1738,7 +2306,7 @@ function App() {
                     fontWeight: 600,
                     textTransform: 'uppercase',
                     letterSpacing: '1.5px',
-                    opacity: 0.85
+                    color: 'rgba(255, 255, 255, 0.75)'
                   }}>
                     {parseLocalDate(selectedEntry.dateString).toLocaleDateString(undefined, { month: 'long' })}
                   </div>
@@ -1746,17 +2314,18 @@ function App() {
                   <div style={{
                     fontFamily: 'var(--font-sans)',
                     fontSize: '4.5rem',
-                    fontWeight: 700,
+                    fontWeight: 800,
                     lineHeight: 0.9,
-                    letterSpacing: '-2px'
+                    letterSpacing: '-2px',
+                    color: '#ffffff'
                   }}>
                     {parseLocalDate(selectedEntry.dateString).getDate().toString().padStart(2, '0')}
                   </div>
 
                   <div style={{
                     fontSize: '0.9rem',
-                    fontWeight: 500,
-                    opacity: 0.9
+                    fontWeight: 600,
+                    color: 'rgba(255, 255, 255, 0.85)'
                   }}>
                     {parseLocalDate(selectedEntry.dateString).toLocaleDateString(undefined, { weekday: 'long' })}. {new Date(selectedEntry.createdAt).toLocaleTimeString(undefined, {
                       hour: '2-digit',
@@ -1770,12 +2339,13 @@ function App() {
                     display: 'flex',
                     gap: '0.75rem',
                     fontSize: '0.75rem',
-                    background: 'rgba(255,255,255,0.1)',
-                    backdropFilter: 'blur(10px)',
+                    background: 'rgba(255, 255, 255, 0.15)',
                     padding: '0.35rem 0.85rem',
                     borderRadius: '30px',
                     marginTop: '0.25rem',
-                    border: '1px solid rgba(255,255,255,0.15)'
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    color: '#ffffff',
+                    fontWeight: 500
                   }}>
                     <span>
                       {WEATHER_ICONS[selectedEntry.weather]?.emoji} {WEATHER_ICONS[selectedEntry.weather]?.label.toUpperCase()} {selectedEntry.temperature}
@@ -1824,8 +2394,8 @@ function App() {
                         <span key={tag} style={{
                           fontSize: '0.75rem',
                           color: 'var(--text-secondary)',
-                          background: 'rgba(255, 255, 255, 0.02)',
-                          border: '1px solid var(--border-subtle)',
+                          background: 'var(--bg-active)',
+                          border: '1px solid var(--border)',
                           padding: '0.15rem 0.5rem',
                           borderRadius: '4px'
                         }}>
@@ -1864,7 +2434,7 @@ function App() {
             letterSpacing: '0.8px',
             textTransform: 'uppercase',
             color: 'var(--text-muted)',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid var(--border)',
             marginBottom: 4
           }}>
             {contextMenu.hasSelection ? 'Format Selection' : 'Insert Format'}
@@ -1928,7 +2498,7 @@ function App() {
                     height: '18px',
                     borderRadius: '50%',
                     backgroundColor: c.color,
-                    border: '1px solid rgba(255,255,255,0.2)',
+                    border: '1px solid var(--border)',
                     cursor: 'pointer',
                     transition: 'transform 0.15s ease',
                   }}
@@ -1946,7 +2516,7 @@ function App() {
                   height: '18px',
                   borderRadius: '50%',
                   background: 'conic-gradient(red, yellow, green, cyan, blue, magenta, red)',
-                  border: '1px solid rgba(255,255,255,0.3)',
+                  border: '1px solid var(--border)',
                   cursor: 'pointer',
                   transition: 'transform 0.15s ease',
                 }}
