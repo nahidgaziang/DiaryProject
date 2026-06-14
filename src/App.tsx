@@ -859,6 +859,8 @@ function App() {
                               </span>
                               <span>•</span>
                               <span>{WEATHER_ICONS[entry.weather]?.emoji} {WEATHER_ICONS[entry.weather]?.label}</span>
+                              <span>•</span>
+                              <span>{MOODS.find(m => m.type === entry.mood)?.icon} {MOODS.find(m => m.type === entry.mood)?.label}</span>
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelete(entry.id); }}
@@ -950,6 +952,8 @@ function App() {
                                   <span>{matchingEntry.temperature}</span>
                                 </>
                               )}
+                              <span>•</span>
+                              <span>{MOODS.find(m => m.type === matchingEntry.mood)?.icon} {MOODS.find(m => m.type === matchingEntry.mood)?.label}</span>
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelete(matchingEntry.id); }}
@@ -1779,6 +1783,10 @@ function App() {
                     <span>•</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
                       <MapPin size={10} /> {selectedEntry.location}
+                    </span>
+                    <span>•</span>
+                    <span>
+                      {MOODS.find(m => m.type === selectedEntry.mood)?.icon} {MOODS.find(m => m.type === selectedEntry.mood)?.label.toUpperCase()}
                     </span>
                   </div>
                 </div>
