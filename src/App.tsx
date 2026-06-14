@@ -1936,6 +1936,44 @@ function App() {
                   onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                 />
               ))}
+              
+              {/* Custom Rainbow Color Picker */}
+              <div
+                title="Custom Color"
+                style={{
+                  position: 'relative',
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  background: 'conic-gradient(red, yellow, green, cyan, blue, magenta, red)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.2)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                <input
+                  type="color"
+                  onChange={(e) => {
+                    applyColorFormat(e.target.value);
+                    setContextMenu(prev => ({ ...prev, visible: false }));
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    opacity: 0,
+                    cursor: 'pointer',
+                  }}
+                />
+              </div>
+
               <button
                 title="Clear Color"
                 type="button"
