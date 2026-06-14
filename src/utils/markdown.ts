@@ -153,6 +153,7 @@ export function stripMarkdown(text: string): string {
     .replace(/^\d+\.\s+/gm, '')            // Ordered lists
     .replace(/^>\s?/gm, '')               // Blockquotes
     .replace(/^---+$/gm, '')              // Horizontal rules
+    .replace(/<span[^>]*>(.*?)<\/span>/gi, '$1') // HTML span tags (like colors) => plain
     .replace(/\*\*(.+?)\*\*/g, '$1')      // Bold => plain
     .replace(/\*(.+?)\*/g, '$1')          // Italic => plain
     .replace(/`(.+?)`/g, '$1')            // Inline code => plain

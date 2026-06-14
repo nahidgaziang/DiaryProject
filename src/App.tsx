@@ -56,6 +56,17 @@ const CARD_COLOR_PRESETS = [
   { label: 'Slate',       hex: '#94a3b8', gradient: 'linear-gradient(135deg, #94a3b8 0%, #64748b 50%, #475569 100%)' },
 ];
 
+const TEXT_COLORS = [
+  { name: 'Rose', color: '#f43f5e' },
+  { name: 'Orange', color: '#f97316' },
+  { name: 'Amber', color: '#f59e0b' },
+  { name: 'Emerald', color: '#10b981' },
+  { name: 'Sky Blue', color: '#0ea5e9' },
+  { name: 'Violet', color: '#8b5cf6' },
+  { name: 'Pink', color: '#ec4899' },
+  { name: 'White', color: '#ffffff' }
+];
+
 /**
  * Returns a gradient string for an entry's header banner.
  * Uses the entry's own cardColor if set, falls back to CSS theme variable.
@@ -338,6 +349,42 @@ function App() {
       if (!contentRef.current) return;
       contentRef.current.focus();
       const newPos = start + cursorOffset;
+      contentRef.current.setSelectionRange(newPos, newPos);
+    });
+  };
+
+  const applyColorFormat = (color: string) => {
+    const el = contentRef.current;
+    if (!el) return;
+    const start = selectionRef.current.start;
+    const end = selectionRef.current.end;
+    const selected = content.substring(start, end);
+    const before = content.substring(0, start);
+    const after = content.substring(end);
+
+    let core = '';
+    const existingSpanRegex = /^<span style="color:\s*([^"]+)">(.*)<\/span>$/;
+    const match = selected.match(existingSpanRegex);
+
+    if (color === 'inherit') {
+      core = match ? match[2] : selected;
+    } else {
+      if (match) {
+        core = `<span style="color: ${color}">${match[2]}</span>`;
+      } else {
+        const inner = selected || 'colored text';
+        core = `<span style="color: ${color}">${inner}</span>`;
+      }
+    }
+
+    const replacement = core;
+    const newContent = before + replacement + after;
+    setContent(newContent);
+
+    requestAnimationFrame(() => {
+      if (!contentRef.current) return;
+      contentRef.current.focus();
+      const newPos = start + core.length;
       contentRef.current.setSelectionRange(newPos, newPos);
     });
   };
@@ -1892,7 +1939,10 @@ function App() {
             top: contextMenu.y,
             zIndex: 99999,
           }}
-          onMouseDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
         >
           {/* Menu header label */}
           <div style={{
@@ -1944,6 +1994,72 @@ function App() {
           <div className="menu-item" onClick={() => { applyFormat('divider'); setContextMenu(prev => ({ ...prev, visible: false })); }}>
             <span className="menu-label-icon"><DividerIcon size={13} style={{ marginRight: 8 }} /> Divider Line</span>
             <span className="menu-shortcut">Ctrl+Shift+D</span>
+          </div>
+
+          <div className="menu-separator" />
+          <div style={{ padding: '6px 14px 8px' }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.5px' }}>
+              Text Color
+            </div>
+            <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
+              {TEXT_COLORS.map(c => (
+                <button
+                  key={c.color}
+                  title={c.name}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onClick={() => {
+                    applyColorFormat(c.color);
+                    setContextMenu(prev => ({ ...prev, visible: false }));
+                  }}
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    backgroundColor: c.color,
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    cursor: 'pointer',
+                    transition: 'transform 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.2)'}
+                  onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                />
+              ))}
+              <button
+                title="Clear Color"
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={() => {
+                  applyColorFormat('inherit');
+                  setContextMenu(prev => ({ ...prev, visible: false }));
+                }}
+                style={{
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  backgroundColor: 'transparent',
+                  border: '1px dashed var(--text-muted)',
+                  color: 'var(--text-muted)',
+                  fontSize: '0.6rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'transform 0.15s ease',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.2)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                ✕
+              </button>
+            </div>
           </div>
         </div>
       )}
