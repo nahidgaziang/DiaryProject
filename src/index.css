@@ -441,5 +441,13 @@ button, input, textarea {
   50% { opacity: 0.4; box-shadow: 0 0 10px var(--accent-color); }
 }
 
+/* Rich Editor Placeholder styling */
+.rich-editor:empty::before {
+  content: "Write your story here... Right-click selected text to format or apply color.";
+  color: var(--text-muted);
+  font-style: italic;
+  pointer-events: none;
+}
+
 
 

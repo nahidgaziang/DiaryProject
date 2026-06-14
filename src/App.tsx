@@ -115,10 +115,7 @@ function App() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
-  const contentRef = useRef<HTMLTextAreaElement>(null);
-  // Saves selection BEFORE right-click can move the cursor and clear it.
-  // Both handleContextMenu and applyFormat read from this ref.
-  const selectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Context Menu State for formatting operations only
   const [contextMenu, setContextMenu] = useState<{
@@ -145,6 +142,21 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
+
+  // Sync content state to editor element when the drawer opens or when editing starts
+  useEffect(() => {
+    if (isDrawerOpen && contentRef.current) {
+      const initialHtml = renderMarkdown(content);
+      if (contentRef.current.innerHTML !== initialHtml) {
+        contentRef.current.innerHTML = initialHtml;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDrawerOpen, editingEntryId]);
+
+  const handleEditorInput = (e: React.FormEvent<HTMLDivElement>) => {
+    setContent(e.currentTarget.innerHTML);
+  };
 
   // Selected entry for Hero Morph Modal
   const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
@@ -239,13 +251,11 @@ function App() {
     setEditingEntryId(null);
   };
 
-  /**
-   * Opens the custom context menu for text formatting and editing operations.
-   */
-  const handleContextMenu = (e: React.MouseEvent<HTMLTextAreaElement>) => {
+  const handleEditorContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const el = contentRef.current;
-    if (!el) return;
+
+    const selection = window.getSelection();
+    const hasSelection = selection ? selection.toString().length > 0 : false;
 
     // Position bounding to prevent menu clipping.
     // Menu width is approx 220px, max menu height is approx 260px.
@@ -265,7 +275,6 @@ function App() {
     x = Math.max(10, x);
     y = Math.max(10, y);
 
-    const hasSelection = selectionRef.current.start !== selectionRef.current.end;
     setContextMenu({
       x,
       y,
@@ -274,119 +283,68 @@ function App() {
     });
   };
 
-  /**
-   * Applies a markdown format to the selected text in the content textarea.
-   * Block-level formats (headings, quote, bullet, divider) auto-insert newlines
-   * so they never get concatenated with adjacent text.
-   */
-  const applyFormat = (type: 'bold' | 'italic' | 'h1' | 'h2' | 'quote' | 'bullet' | 'divider' | 'code') => {
-    const el = contentRef.current;
-    if (!el) return;
-    const start = selectionRef.current.start;
-    const end = selectionRef.current.end;
-    const selected = content.substring(start, end);
-    const before = content.substring(0, start);
-    const after = content.substring(end);
-
-    // For block-level formats, ensure there's a newline before insertion
-    // if we're not already at the start of a line
-    const isBlockType = ['h1', 'h2', 'quote', 'bullet', 'divider'].includes(type);
-    const needsNewlineBefore = isBlockType && before.length > 0 && !before.endsWith('\n');
-    const needsNewlineAfter = isBlockType && after.length > 0 && !after.startsWith('\n');
-    const nlBefore = needsNewlineBefore ? '\n' : '';
-    const nlAfter = needsNewlineAfter ? '\n' : '';
-
-    let core = '';
-    let cursorOffset = 0;
+  const applyFormat = (type: 'bold' | 'italic' | 'h1' | 'h2' | 'quote' | 'bullet' | 'code') => {
+    if (contentRef.current) {
+      contentRef.current.focus();
+    }
 
     switch (type) {
-      case 'bold': {
-        const inner = selected || 'bold text';
-        core = `**${inner}**`;
-        cursorOffset = selected ? core.length : core.length - 2;
+      case 'bold':
+        document.execCommand('bold', false);
         break;
-      }
-      case 'italic': {
-        const inner = selected || 'italic text';
-        core = `*${inner}*`;
-        cursorOffset = selected ? core.length : core.length - 1;
+      case 'italic':
+        document.execCommand('italic', false);
         break;
-      }
       case 'code': {
-        const inner = selected || 'code';
-        core = `\`${inner}\``;
-        cursorOffset = selected ? core.length : core.length - 1;
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          const selectedText = range.toString();
+          const codeNode = document.createElement('code');
+          codeNode.textContent = selectedText || 'code';
+          range.deleteContents();
+          range.insertNode(codeNode);
+
+          range.setStartAfter(codeNode);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
         break;
       }
       case 'h1':
-        core = `# ${selected || 'Heading'}`;
-        cursorOffset = nlBefore.length + core.length;
+        document.execCommand('formatBlock', false, 'H1');
         break;
       case 'h2':
-        core = `## ${selected || 'Subheading'}`;
-        cursorOffset = nlBefore.length + core.length;
+        document.execCommand('formatBlock', false, 'H2');
         break;
       case 'quote':
-        core = `> ${selected || 'Quote your thoughts...'}`;
-        cursorOffset = nlBefore.length + core.length;
+        document.execCommand('formatBlock', false, 'BLOCKQUOTE');
         break;
       case 'bullet':
-        core = `- ${selected || 'List item'}`;
-        cursorOffset = nlBefore.length + core.length;
-        break;
-      case 'divider':
-        core = `---`;
-        cursorOffset = nlBefore.length + core.length;
+        document.execCommand('insertUnorderedList', false);
         break;
     }
 
-    const replacement = `${nlBefore}${core}${nlAfter}`;
-    const newContent = before + replacement + after;
-    setContent(newContent);
-
-    // Restore focus and reposition cursor after React re-render
-    requestAnimationFrame(() => {
-      if (!contentRef.current) return;
-      contentRef.current.focus();
-      const newPos = start + cursorOffset;
-      contentRef.current.setSelectionRange(newPos, newPos);
-    });
+    if (contentRef.current) {
+      setContent(contentRef.current.innerHTML);
+    }
   };
 
   const applyColorFormat = (color: string) => {
-    const el = contentRef.current;
-    if (!el) return;
-    const start = selectionRef.current.start;
-    const end = selectionRef.current.end;
-    const selected = content.substring(start, end);
-    const before = content.substring(0, start);
-    const after = content.substring(end);
-
-    let core = '';
-    const existingSpanRegex = /^<span style="color:\s*([^"]+)">(.*)<\/span>$/;
-    const match = selected.match(existingSpanRegex);
-
-    if (color === 'inherit') {
-      core = match ? match[2] : selected;
-    } else {
-      if (match) {
-        core = `<span style="color: ${color}">${match[2]}</span>`;
-      } else {
-        const inner = selected || 'colored text';
-        core = `<span style="color: ${color}">${inner}</span>`;
-      }
+    if (contentRef.current) {
+      contentRef.current.focus();
     }
 
-    const replacement = core;
-    const newContent = before + replacement + after;
-    setContent(newContent);
+    if (color === 'inherit') {
+      document.execCommand('removeFormat', false);
+    } else {
+      document.execCommand('foreColor', false, color);
+    }
 
-    requestAnimationFrame(() => {
-      if (!contentRef.current) return;
-      contentRef.current.focus();
-      const newPos = start + core.length;
-      contentRef.current.setSelectionRange(newPos, newPos);
-    });
+    if (contentRef.current) {
+      setContent(contentRef.current.innerHTML);
+    }
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -1425,29 +1383,11 @@ function App() {
                     </span>
                   </div>
 
-                  {/* Textarea — clean editor, no toolbar */}
-                  <textarea
+                  {/* Rich Text Editor — WYSIWYG editor */}
+                  <div
                     ref={contentRef}
-                    required
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    onMouseDown={(e) => {
-                      // Save selection on right-click BEFORE the browser moves the cursor and clears it
-                      if (e.button === 2) {
-                        const el = contentRef.current;
-                        if (el) selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
-                      }
-                    }}
-                    onSelect={() => {
-                      // Keep selectionRef in sync whenever selection changes via mouse
-                      const el = contentRef.current;
-                      if (el) selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
-                    }}
-                    onKeyUp={() => {
-                      // Catch keyboard-driven selection (Shift+Arrow, Ctrl+A, etc.)
-                      const el = contentRef.current;
-                      if (el) selectionRef.current = { start: el.selectionStart, end: el.selectionEnd };
-                    }}
+                    contentEditable={true}
+                    onInput={handleEditorInput}
                     onKeyDown={(e) => {
                       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'b') { e.preventDefault(); applyFormat('bold'); }
                       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); applyFormat('italic'); }
@@ -1457,58 +1397,23 @@ function App() {
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '.') { e.preventDefault(); applyFormat('quote'); }
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') { e.preventDefault(); applyFormat('bullet'); }
                     }}
-                    onContextMenu={handleContextMenu}
-                    placeholder={"Write your story...\n\nRight-click to format selected text.\nCtrl+B bold  ·  Ctrl+I italic  ·  Ctrl+Shift+M code"}
-                    className="form-input form-textarea"
+                    onContextMenu={handleEditorContextMenu}
+                    className="form-input form-textarea rich-editor prose"
                     style={{
-                      minHeight: '160px',
-                      resize: 'vertical',
+                      minHeight: '220px',
+                      maxHeight: '400px',
+                      overflowY: 'auto',
                       borderRadius: '12px',
                       fontFamily: 'var(--font-sans)',
                       lineHeight: 1.75,
                       fontSize: '0.93rem',
+                      padding: '12px 16px',
+                      border: '1px solid var(--border-subtle)',
+                      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                      color: 'var(--text-primary)',
+                      outline: 'none',
                     }}
                   />
-
-                  {/* Live Preview — always visible, updates as user types */}
-                  {content.trim() && (
-                    <div style={{ marginTop: '0.6rem' }}>
-                      <div style={{
-                        fontSize: '0.7rem',
-                        color: 'var(--text-muted)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.8px',
-                        fontWeight: 600,
-                        marginBottom: '0.4rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem'
-                      }}>
-                        <span style={{
-                          display: 'inline-block',
-                          width: 6, height: 6,
-                          borderRadius: '50%',
-                          background: 'var(--accent-color)',
-                          boxShadow: '0 0 6px var(--accent-color)',
-                          animation: 'pulse-dot 2s ease-in-out infinite'
-                        }} />
-                        Live Preview
-                      </div>
-                      <div
-                        className="prose"
-                        style={{
-                          background: 'var(--bg-card)',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: '12px',
-                          padding: '1rem 1.25rem',
-                          maxHeight: '180px',
-                          overflowY: 'auto',
-                          fontSize: '0.875rem',
-                        }}
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
-                      />
-                    </div>
-                  )}
                 </div>
 
                 {/* Tags */}

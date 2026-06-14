@@ -14,6 +14,11 @@
 export function renderMarkdown(text: string): string {
   if (!text) return '';
 
+  // Check if it already contains HTML formatting
+  if (/<(p|strong|em|code|h1|h2|h3|ul|ol|li|blockquote|span|hr|br)[^>]*>/i.test(text)) {
+    return text;
+  }
+
   const lines = text.split('\n');
   const output: string[] = [];
   let inList = false;
@@ -147,16 +152,20 @@ function inlineMarkdown(text: string): string {
  */
 export function stripMarkdown(text: string): string {
   if (!text) return '';
-  return text
+  
+  // Strip HTML tags first
+  const cleanText = text.replace(/<[^>]*>/g, ' ');
+
+  return cleanText
     .replace(/^#{1,3}\s+/gm, '')          // Headings
     .replace(/^[-*]\s+/gm, '')             // Bullet lists
     .replace(/^\d+\.\s+/gm, '')            // Ordered lists
     .replace(/^>\s?/gm, '')               // Blockquotes
     .replace(/^---+$/gm, '')              // Horizontal rules
-    .replace(/<span[^>]*>(.*?)<\/span>/gi, '$1') // HTML span tags (like colors) => plain
     .replace(/\*\*(.+?)\*\*/g, '$1')      // Bold => plain
     .replace(/\*(.+?)\*/g, '$1')          // Italic => plain
     .replace(/`(.+?)`/g, '$1')            // Inline code => plain
     .replace(/\n{2,}/g, '\n')             // Collapse multiple newlines
+    .replace(/\s+/g, ' ')                 // Normalize multiple spaces
     .trim();
 }
