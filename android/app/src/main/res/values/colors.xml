@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DailyDrive brand colors -->
+    <color name="colorPrimary">#08131E</color>
+    <color name="colorPrimaryDark">#08131E</color>
+    <color name="colorAccent">#76C2F0</color>
+    <color name="colorBackground">#08131E</color>
+
+</resources>

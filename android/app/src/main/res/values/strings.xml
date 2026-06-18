@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DailyDrive</string>
+    <string name="title_activity_main">DailyDrive</string>
+    <string name="package_name">com.dailydrive.diary</string>
+    <string name="custom_url_scheme">com.dailydrive.diary</string>
+</resources>

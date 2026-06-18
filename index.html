@@ -3,8 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>diary</title>
+
+    <!-- Mobile viewport — prevents zoom, sets safe area insets for notch/cutout -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+
+    <!-- PWA / Mobile App meta -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DailyDrive" />
+    <meta name="theme-color" content="#08131E" />
+
+    <!-- SEO -->
+    <meta name="description" content="DailyDrive — Your personal diary. Capture moments, moods, and memories." />
+
+    <title>DailyDrive</title>
   </head>
   <body>
     <div id="root"></div>

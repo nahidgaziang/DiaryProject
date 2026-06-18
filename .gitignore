@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Android build artifacts
+android/.gradle
+android/build
+android/app/build
+android/.idea
+android/local.properties
+android/captures

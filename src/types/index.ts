@@ -13,5 +13,6 @@ export interface DiaryEntry {
   location: string; // e.g. "Tokyo, Gifu"
   tags: string[];
   cardColor?: string; // Optional per-entry accent hex color, e.g. "#8b5cf6"
+  images?: string[]; // Array of persistent image paths
 }
 

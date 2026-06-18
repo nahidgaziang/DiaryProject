@@ -1,28 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Trash2, PlusCircle, Check, X, PenTool, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List, Menu, Settings, ListOrdered, Activity, TrendingUp, BarChart2, Tag, Download, Upload } from 'lucide-react';
+import { BookOpenText, Trash2, PlusCircle, Check, X, Feather, Cloud, Sun, CloudRain, Snowflake, Moon, MapPin, Search, ChevronLeft, ChevronRight, RefreshCw, Pencil, Bold, Italic, Code2, Heading1, Heading2, Quote, List, Menu, Settings, ListOrdered, Activity, TrendingUp, BarChart2, Tag, Download, Upload, Copy, Scissors, Camera as CameraIcon, Image as ImageIcon, Eye } from 'lucide-react';
 import type { DiaryEntry, MoodType, WeatherType } from './types';
 import { DiaryStorageService } from './utils/storage';
+import { App as CapacitorApp } from '@capacitor/app';
 import { detectLocation, fetchWeather } from './utils/weather';
 import { renderMarkdown, stripMarkdown } from './utils/markdown';
 import JSZip from 'jszip';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { saveEntryImage, getEntryImageSrc, deleteEntryImage } from './utils/imageStorage';
 
 
-interface DraftData {
-  title: string;
-  content: string;
-  mood: MoodType;
-  weather: WeatherType;
-  temperature: string;
-  location: string;
-  tags: string[];
-  cardColor?: string;
-  customColorInput: string;
-  isEditMode: boolean;
-  editingEntryId: string | null;
-  targetDateString: string;
-  savedAt: string;
-}
 
 
 const getLocalDateString = (date: Date): string => {
@@ -79,8 +68,10 @@ const TEXT_COLORS = [
   { name: 'Mendung Parah', color: '#76C2F0' },
   { name: 'Maroona',       color: '#FAB514' },
   { name: 'Mendung',       color: '#FC7C00' },
-  { name: 'Old Leaf',      color: '#0B253A' },
-  { name: 'Crimson Red',   color: '#DC2626' }
+  { name: 'Crimson Red',   color: '#DC2626' },
+  { name: 'Emerald Green', color: '#10B981' },
+  { name: 'Lavender',      color: '#8B5CF6' },
+  { name: 'Pink Rose',     color: '#EC4899' }
 ];
 
 /** Returns the solid accent color for an entry's accent strip. */
@@ -618,15 +609,80 @@ function AnalyticsDashboard({ entries, onSelectTag }: AnalyticsDashboardProps) {
   );
 }
 
+const hexToHsl = (hex: string): { h: number; s: number; l: number } => {
+  hex = hex.replace(/^#/, '');
+  if (hex.length === 3) {
+    hex = hex.split('').map(c => c + c).join('');
+  }
+  if (hex.length !== 6) {
+    return { h: 200, s: 80, l: 50 };
+  }
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+
+  return {
+    h: Math.round(h * 360),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100)
+  };
+};
+
+const hslToHex = (h: number, s: number, l: number): string => {
+  l /= 100;
+  const a = (s * Math.min(l, 1 - l)) / 100;
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+};
+
 function App() {
   const [entries, setEntries] = useState<DiaryEntry[]>(() => DiaryStorageService.getAll());
-  const [seeded, setSeeded] = useState(false);
+
+  const getLastUsedMetadata = () => {
+    if (!entries || entries.length === 0) {
+      return {
+        location: 'Tokyo, Japan',
+        weather: 'sunny' as WeatherType,
+        temperature: '24° / 16°'
+      };
+    }
+    const sorted = [...entries].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const latest = sorted[0];
+    return {
+      location: latest.location || 'Tokyo, Japan',
+      weather: latest.weather || 'sunny',
+      temperature: latest.temperature || '24° / 16°'
+    };
+  };
+
+  const initialMetadata = getLastUsedMetadata();
   const [sortOption, setSortOption] = useState<'last_entry' | 'date' | 'name'>('last_entry');
   const [activeTheme, setActiveTheme] = useState<'ocean' | 'forest' | 'amber' | 'slate'>('ocean');
   const [customThemeColor, setCustomThemeColor] = useState<string>('#1A92B4');
   const [isCustomTheme, setIsCustomTheme] = useState<boolean>(false);
   const [isDark, setIsDark] = useState<boolean>(() => {
-    const saved = localStorage.getItem('aurelius_theme_mode');
+    const saved = DiaryStorageService.getTheme();
     if (saved !== null) {
       return saved === 'dark';
     }
@@ -662,28 +718,110 @@ function App() {
 
   // Drawer Form States
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [targetDateString, setTargetDateString] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [mood, setMood] = useState<MoodType>('calm');
-  const [weather, setWeather] = useState<WeatherType>('sunny');
-  const [temperature, setTemperature] = useState('24° / 16°');
-  const [location, setLocation] = useState('Tokyo, Japan');
+  const [weather, setWeather] = useState<WeatherType>(initialMetadata.weather);
+  const [temperature, setTemperature] = useState(initialMetadata.temperature);
+  const [location, setLocation] = useState(initialMetadata.location);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [isAutoDetect, setIsAutoDetect] = useState(true);
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
   const [cardColor, setCardColor] = useState<string | undefined>(undefined);
   const [customColorInput, setCustomColorInput] = useState('');
+  const [showCardColorSliders, setShowCardColorSliders] = useState(false);
+  const [images, setImages] = useState<string[]>([]);
+  const [imageSrcCache, setImageSrcCache] = useState<Record<string, string>>({});
+
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const [headerCarouselIndex, setHeaderCarouselIndex] = useState(0);
+  const [headerCarouselDirection, setHeaderCarouselDirection] = useState(0);
+
+  const paginateHeaderCarousel = (newDirection: number, totalImages: number) => {
+    let nextIndex = headerCarouselIndex + newDirection;
+    if (nextIndex < 0) nextIndex = totalImages - 1;
+    if (nextIndex >= totalImages) nextIndex = 0;
+    setHeaderCarouselDirection(newDirection);
+    setHeaderCarouselIndex(nextIndex);
+  };
+
+  const carouselVariants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? '100%' : '-100%',
+      opacity: 0
+    }),
+    center: {
+      zIndex: 1,
+      x: 0,
+      opacity: 1
+    },
+    exit: (direction: number) => ({
+      zIndex: 0,
+      x: direction < 0 ? '100%' : '-100%',
+      opacity: 0
+    })
+  };
 
   // Edit Mode States
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
-  // Draft Auto-Save State
-  const [draftToRestore, setDraftToRestore] = useState<DraftData | null>(null);
+  // Resolve Image URLs for entry feeds and details
+  useEffect(() => {
+    let active = true;
+    const resolveImages = async () => {
+      const newCache = { ...imageSrcCache };
+      let changed = false;
+      for (const entry of entries) {
+        if (entry.images) {
+          for (const path of entry.images) {
+            if (!newCache[path]) {
+              const src = await getEntryImageSrc(path);
+              if (src) {
+                newCache[path] = src;
+                changed = true;
+              }
+            }
+          }
+        }
+      }
+      if (changed && active) setImageSrcCache(newCache);
+    };
+    resolveImages();
+    return () => { active = false; };
+  }, [entries, imageSrcCache]);
+
+  // Same logic to resolve currently attached images in drawer
+  useEffect(() => {
+    let active = true;
+    const resolveDrawerImages = async () => {
+      const newCache = { ...imageSrcCache };
+      let changed = false;
+      for (const path of images) {
+        if (!newCache[path]) {
+          const src = await getEntryImageSrc(path);
+          if (src) {
+            newCache[path] = src;
+            changed = true;
+          }
+        }
+      }
+      if (changed && active) setImageSrcCache(newCache);
+    };
+    resolveDrawerImages();
+    return () => { active = false; };
+  }, [images, imageSrcCache]);
+
+
 
   const contentRef = useRef<HTMLDivElement>(null);
+  const colorBtnContainerRef = useRef<HTMLDivElement>(null);
 
   // Context Menu State for formatting operations only
   const [contextMenu, setContextMenu] = useState<{
@@ -711,6 +849,8 @@ function App() {
     };
   }, []);
 
+
+
   // Sync content state to editor element when the drawer opens or when editing starts
   useEffect(() => {
     if (isDrawerOpen && contentRef.current) {
@@ -729,11 +869,48 @@ function App() {
   // Selected entry for Hero Morph Modal
   const [selectedEntry, setSelectedEntry] = useState<DiaryEntry | null>(null);
 
+  useEffect(() => {
+    if (selectedEntry) {
+      setHeaderCarouselIndex(0);
+      setHeaderCarouselDirection(0);
+    }
+  }, [selectedEntry]);
+
+  // Native Android Back Button Handler
+  useEffect(() => {
+    let handler: any = null;
+    
+    const registerBackButton = async () => {
+      try {
+        handler = await CapacitorApp.addListener('backButton', () => {
+          if (isDrawerOpen) {
+            handleCloseRequest();
+          } else if (selectedEntry) {
+            setSelectedEntry(null);
+          } else if (isSettingsOpen) {
+            setIsSettingsOpen(false);
+          } else {
+            CapacitorApp.exitApp();
+          }
+        });
+      } catch (err) {
+        console.warn('Capacitor App backButton listener not registered:', err);
+      }
+    };
+
+    registerBackButton();
+    return () => {
+      if (handler) {
+        handler.remove();
+      }
+    };
+  }, [isDrawerOpen, selectedEntry, isSettingsOpen]);
+
   // Apply Theme + Mode attributes to HTML element
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', activeTheme);
     document.documentElement.setAttribute('data-mode', isDark ? 'dark' : 'light');
-    localStorage.setItem('aurelius_theme_mode', isDark ? 'dark' : 'light');
+    DiaryStorageService.setTheme(isDark ? 'dark' : 'light');
 
     const root = document.documentElement;
     if (isCustomTheme && customThemeColor) {
@@ -777,68 +954,7 @@ function App() {
   };
 
 
-  // Check for unsaved draft when drawer opens
-  const checkForDraft = (forEditId: string | null = null) => {
-    const saved = localStorage.getItem('aurelius_draft');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as DraftData;
-        const hasContent = parsed.title?.trim() || parsed.content?.trim() || (parsed.tags && parsed.tags.length > 0);
-        
-        // Show restore if it has content AND:
-        // - if we are writing a new entry (forEditId is null) and the draft is also for a new entry (editingEntryId is null)
-        // - OR if we are editing an entry and the draft is for editing the same entry
-        if (hasContent) {
-          const modeMatch = forEditId === null 
-            ? !parsed.isEditMode 
-            : (parsed.isEditMode && parsed.editingEntryId === forEditId);
-            
-          if (modeMatch) {
-            setDraftToRestore(parsed);
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('Failed to parse draft:', e);
-      }
-    }
-    setDraftToRestore(null);
-  };
-
-  // Auto-save draft changes
-  useEffect(() => {
-    if (!isDrawerOpen) return;
-    
-    // Check if there is anything meaningful to save
-    const hasContent = title.trim() || content.trim() || tags.length > 0;
-    if (!hasContent) {
-      // If the user cleared everything, remove the draft so we don't save a blank state
-      localStorage.removeItem('aurelius_draft');
-      return;
-    }
-
-    const draftData = {
-      title,
-      content,
-      mood,
-      weather,
-      temperature,
-      location,
-      tags,
-      cardColor,
-      customColorInput,
-      isEditMode,
-      editingEntryId,
-      targetDateString,
-      savedAt: new Date().toISOString()
-    };
-
-    const timer = setTimeout(() => {
-      localStorage.setItem('aurelius_draft', JSON.stringify(draftData));
-    }, 500); // 500ms debounce
-
-    return () => clearTimeout(timer);
-  }, [title, content, mood, weather, temperature, location, tags, cardColor, customColorInput, isEditMode, editingEntryId, targetDateString, isDrawerOpen]);
+  // Check for unsaved draft when drawer opens (removed in favor of automatic restoration)
 
   // Infinite-scroll: watch sentinel at the top of the feed and load more older entries
   useEffect(() => {
@@ -864,125 +980,72 @@ function App() {
   }, []); // ref is stable, no deps needed
 
 
-  const handleRestoreDraft = () => {
-    if (!draftToRestore) return;
-    const d = draftToRestore;
-    setTitle(d.title || '');
-    setContent(d.content || '');
-    setMood(d.mood || 'calm');
-    setWeather(d.weather || 'sunny');
-    setTemperature(d.temperature || '24° / 16°');
-    setLocation(d.location || 'Tokyo, Japan');
-    setTags(d.tags || []);
-    setCardColor(d.cardColor);
-    setCustomColorInput(d.customColorInput || '');
-    setIsEditMode(!!d.isEditMode);
-    setEditingEntryId(d.editingEntryId || null);
-    if (d.targetDateString) {
-      setTargetDateString(d.targetDateString);
-    }
-    
-    if (contentRef.current) {
-      contentRef.current.innerHTML = d.content || '';
-    }
-    
-    setDraftToRestore(null);
-  };
-
-  const handleDiscardDraft = () => {
-    localStorage.removeItem('aurelius_draft');
-    setDraftToRestore(null);
-  };
-
-
-
-  const getMockEntriesForCurrentDates = (): DiaryEntry[] => {
-    const today = new Date();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    return [
-      {
-        id: 'mock-1',
-        title: '東京生活、楽しすぎる！',
-        content: '昨日は瀧くんと入れ替わっていたみたい。東京のカフェ、パンケーキがすごく美味しかった！バイトの店長も親切。でも、ちょっと歩きすぎて足が痛いかも。いつか本当の東京に行ってみたいな。',
-        createdAt: new Date(today.setHours(16, 21, 0, 0)).toISOString(),
-        dateString: getLocalDateString(today),
-        mood: 'joyful',
-        weather: 'sunny',
-        temperature: '26° / 18°',
-        location: 'takayama-shi, Gifu, JAPAN',
-        tags: ['東京生活', '入れ替わり', 'カフェ']
-      },
-      {
-        id: 'mock-2',
-        title: '学校生活と彗星 of 観測',
-        content: '今日は一日、三葉の姿で過ごした。糸守は本当にのどかな町だ。御神体がある山頂からの景色は絶景だったな。夕方、みんなでテッシーの作った部室に集まった。夜空に見える彗星がどんどん大きくなっている気がする。',
-        createdAt: new Date(yesterday.setHours(21, 12, 0, 0)).toISOString(),
-        dateString: getLocalDateString(yesterday),
-        mood: 'reflective',
-        weather: 'clear',
-        temperature: '21° / 13°',
-        location: 'Itomori, Gifu, JAPAN',
-        tags: ['糸守町', '彗星', '夕暮れ']
+  const handleCloseRequest = () => {
+    if (isEditMode) {
+      const original = entries.find(e => e.id === editingEntryId);
+      const isDirty = original 
+        ? (title.trim() !== original.title || content.trim() !== original.content)
+        : (title.trim() !== '' || content.trim() !== '');
+        
+      if (isDirty) {
+        setShowCloseConfirm(true);
+      } else {
+        setIsDrawerOpen(false);
+        resetForm();
       }
-    ];
+    } else {
+      const hasText = title.trim() !== '' || content.trim() !== '';
+      if (hasText) {
+        setShowCloseConfirm(true);
+      } else {
+        setIsDrawerOpen(false);
+        resetForm();
+      }
+    }
   };
 
-  const handleSeed = () => {
-    const mockData = getMockEntriesForCurrentDates();
-    mockData.forEach(entry => DiaryStorageService.save(entry));
-    setEntries(DiaryStorageService.getAll());
-    setSeeded(true);
-    setTimeout(() => setSeeded(false), 2000);
-  };
 
-  const handleDelete = (id: string) => {
+
+  const handleDelete = async (id: string) => {
+    const entry = entries.find(e => e.id === id);
+    if (entry && entry.images) {
+      for (const imgPath of entry.images) {
+        await deleteEntryImage(imgPath);
+      }
+    }
     DiaryStorageService.delete(id);
     setEntries(DiaryStorageService.getAll());
   };
 
-  const handleClearAll = () => {
-    if (window.confirm('Are you sure you want to delete all entries?')) {
-      localStorage.clear();
-      setEntries([]);
-      setSeeded(false);
-    }
-  };
 
-
-  const handleAddTag = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      const clean = tagInput.trim().toLowerCase().replace(/,/g, '');
-      if (clean && !tags.includes(clean)) {
-        setTags([...tags, clean]);
-      }
-      setTagInput('');
-    }
-  };
 
   const handleRemoveTag = (tagToRemove: string) => {
     setTags(tags.filter(t => t !== tagToRemove));
   };
 
   const resetForm = () => {
+    const lastUsed = getLastUsedMetadata();
     setTitle('');
     setContent('');
     setMood('calm');
-    setWeather('sunny');
-    setTemperature('24° / 16°');
-    setLocation('Tokyo, Japan');
+    setWeather(lastUsed.weather);
+    setTemperature(lastUsed.temperature);
+    setLocation(lastUsed.location);
     setTags([]);
     setTagInput('');
     setCardColor(undefined);
     setCustomColorInput('');
+    setImages([]);
     setIsEditMode(false);
     setEditingEntryId(null);
-    setDraftToRestore(null);
   };
 
   const handleEditorContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Disable custom context menu on mobile touch devices to allow native copy/paste
+    if (window.matchMedia('(pointer: coarse)').matches) {
+      return;
+    }
+
     e.preventDefault();
 
     const selection = window.getSelection();
@@ -1012,6 +1075,19 @@ function App() {
       visible: true,
       hasSelection
     });
+  };
+
+  const isSelectionInsideElement = (tagName: string): boolean => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return false;
+    let node: Node | null = selection.getRangeAt(0).startContainer;
+    while (node && node !== contentRef.current) {
+      if (node.nodeName.toUpperCase() === tagName.toUpperCase()) {
+        return true;
+      }
+      node = node.parentNode;
+    }
+    return false;
   };
 
   const applyFormat = (type: 'bold' | 'italic' | 'h1' | 'h2' | 'quote' | 'bullet' | 'code' | 'number') => {
@@ -1049,9 +1125,15 @@ function App() {
       case 'h2':
         document.execCommand('formatBlock', false, 'H2');
         break;
-      case 'quote':
-        document.execCommand('formatBlock', false, 'BLOCKQUOTE');
+      case 'quote': {
+        const inQuote = isSelectionInsideElement('BLOCKQUOTE');
+        if (inQuote) {
+          document.execCommand('formatBlock', false, 'P');
+        } else {
+          document.execCommand('formatBlock', false, 'BLOCKQUOTE');
+        }
         break;
+      }
       case 'bullet':
         document.execCommand('insertUnorderedList', false);
         break;
@@ -1081,6 +1163,25 @@ function App() {
     }
   };
 
+  const handleAddPhoto = async (sourceType: 'CAMERA' | 'PHOTOS') => {
+    try {
+      const image = await Camera.getPhoto({
+        quality: 70,
+        width: 1200,
+        allowEditing: false,
+        resultType: CameraResultType.Uri,
+        source: sourceType === 'CAMERA' ? CameraSource.Camera : CameraSource.Photos
+      });
+      if (image.webPath || image.path) {
+        const uri = image.webPath || image.path || '';
+        const savedPath = await saveEntryImage(editingEntryId || `temp_${Date.now()}`, uri);
+        setImages(prev => [...prev, savedPath]);
+      }
+    } catch (e) {
+      console.warn('User cancelled photo or error', e);
+    }
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !content.trim() || !targetDateString) return;
@@ -1095,12 +1196,14 @@ function App() {
         ...existing,
         title: title.trim(),
         content: content.trim(),
+        dateString: targetDateString,
         mood,
         weather,
         temperature,
         location: location.trim(),
         tags,
-        cardColor: resolvedColor
+        cardColor: resolvedColor,
+        images
       };
       DiaryStorageService.save(updatedEntry);
     } else {
@@ -1116,12 +1219,13 @@ function App() {
         temperature,
         location: location.trim(),
         tags,
-        cardColor: resolvedColor
+        cardColor: resolvedColor,
+        images
       };
       DiaryStorageService.save(newEntry);
     }
 
-    localStorage.removeItem('aurelius_draft');
+    DiaryStorageService.clearDraft();
     setEntries(DiaryStorageService.getAll());
     setIsDrawerOpen(false);
     setSelectedEntry(null);
@@ -1130,11 +1234,22 @@ function App() {
 
   const downloadJSONBackup = () => {
     const dataStr = JSON.stringify(entries, null, 2);
+    
+    if ((window as any).AndroidDownloadBridge) {
+      const base64 = btoa(unescape(encodeURIComponent(dataStr)));
+      (window as any).AndroidDownloadBridge.shareFile(
+        base64,
+        `dailydrive_backup_${getLocalDateString(new Date())}.json`,
+        'application/json'
+      );
+      return;
+    }
+
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aurelius_backup_${getLocalDateString(new Date())}.json`;
+    a.download = `dailydrive_backup_${getLocalDateString(new Date())}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1167,11 +1282,21 @@ ${stripMarkdown(entry.content)}
         zip.file(filename, markdownContent);
       });
       
+      if ((window as any).AndroidDownloadBridge) {
+        const base64 = await zip.generateAsync({ type: 'base64' });
+        (window as any).AndroidDownloadBridge.shareFile(
+          base64,
+          `dailydrive_diary_backup_${getLocalDateString(new Date())}.zip`,
+          'application/zip'
+        );
+        return;
+      }
+
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `aurelius_diary_backup_${getLocalDateString(new Date())}.zip`;
+      a.download = `dailydrive_diary_backup_${getLocalDateString(new Date())}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1266,7 +1391,10 @@ ${stripMarkdown(entry.content)}
       setWeather(w.weatherType);
     } catch (error) {
       console.error('Auto detection failed:', error);
-      setLocation('Tokyo, Japan');
+      const lastUsed = getLastUsedMetadata();
+      setLocation(lastUsed.location);
+      setWeather(lastUsed.weather);
+      setTemperature(lastUsed.temperature);
     } finally {
       setIsLoadingWeather(false);
     }
@@ -1274,13 +1402,29 @@ ${stripMarkdown(entry.content)}
 
   const openWriterForDate = (dateStr: string) => {
     setTargetDateString(dateStr);
-    resetForm();
+    
+    // Auto-restore draft text if available
+    const savedDraft = DiaryStorageService.getDraft();
+    let hasDraft = false;
+    if (savedDraft) {
+      resetForm();
+      setTitle(savedDraft.title || '');
+      setContent(savedDraft.content || '');
+      hasDraft = true;
+    }
+    
+    if (!hasDraft) {
+      resetForm();
+    }
+    
     setIsDrawerOpen(true);
-    checkForDraft(null);
     if (isAutoDetect) {
       fetchAutoDetectInfo();
     } else {
-      setLocation('Tokyo, Japan');
+      const lastUsed = getLastUsedMetadata();
+      setLocation(lastUsed.location);
+      setWeather(lastUsed.weather);
+      setTemperature(lastUsed.temperature);
     }
   };
 
@@ -1296,11 +1440,11 @@ ${stripMarkdown(entry.content)}
     setLocation(entry.location);
     setTags(entry.tags);
     setCardColor(entry.cardColor);
+    setImages(entry.images || []);
     setCustomColorInput('');
     setIsAutoDetect(false); // Don't auto-detect when editing; keep saved values
     setSelectedEntry(null);
     setIsDrawerOpen(true);
-    checkForDraft(entry.id);
   };
 
   // Calendar Engine: Generate grid arrays for the currentMonth/currentYear
@@ -1425,7 +1569,7 @@ ${stripMarkdown(entry.content)}
       minHeight: '100vh',
       paddingBottom: '6rem',
       position: 'relative',
-      overflowX: 'hidden',
+      overflowX: 'clip',
       background: 'var(--bg-primary)',
       transition: 'background 0.6s ease'
     }}>
@@ -1439,7 +1583,6 @@ ${stripMarkdown(entry.content)}
       {/* ─── STICKY FROSTED HEADER ─────────────────────────── */}
       <header className="app-header logo-animate" style={{
         width: '100%',
-        padding: '14px 24px',
         marginBottom: '0',
         zIndex: 50
       }}>
@@ -1455,7 +1598,7 @@ ${stripMarkdown(entry.content)}
             {/* Wordmark */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div className="logo-badge">
-                <BookOpen size={18} color="#fff" />
+                <BookOpenText size={18} color="#fff" />
               </div>
               <h1 style={{
                 fontFamily: 'var(--font-serif)',
@@ -1464,7 +1607,7 @@ ${stripMarkdown(entry.content)}
                 letterSpacing: '-0.5px',
                 color: 'var(--text-primary)'
               }}>
-                Aurelius
+                DailyDrive
               </h1>
             </div>
 
@@ -1563,7 +1706,7 @@ ${stripMarkdown(entry.content)}
       </header>
 
       {/* ─── MAIN CONTENT ──────────────────────────────────── */}
-      <main style={{ width: '100%', maxWidth: '720px', padding: '24px 24px 0', zIndex: 1, minHeight: '60vh' }}>
+      <main className="main-content" style={{ width: '100%', maxWidth: '720px', padding: '24px 24px 0', zIndex: 1, minHeight: '60vh' }}>
 
         
         {/* TAB 1: ENTRIES FEED */}
@@ -1800,9 +1943,20 @@ ${stripMarkdown(entry.content)}
                               <span>{new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                               <span className="entry-meta-dot">•</span>
                               <span>{WEATHER_ICONS[entry.weather]?.emoji} {WEATHER_ICONS[entry.weather]?.label}</span>
+                              {entry.temperature && (
+                                <>
+                                  <span className="entry-meta-dot">•</span>
+                                  <span>{entry.temperature}</span>
+                                </>
+                              )}
                               <span className="entry-meta-dot">•</span>
-                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: moodData?.color, display: 'inline-block', flexShrink: 0 }} />
-                              <span>{moodData?.label}</span>
+                              <span 
+                                className="mood-badge" 
+                                style={{ '--mood-color': moodData?.color || 'var(--accent)' } as React.CSSProperties}
+                              >
+                                <span className="mood-badge-dot" />
+                                <span>{moodData?.label}</span>
+                              </span>
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelete(entry.id); }}
@@ -1937,10 +2091,20 @@ ${stripMarkdown(entry.content)}
                                 <span>{new Date(entry.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                                 <span className="entry-meta-dot">•</span>
                                 <span>{WEATHER_ICONS[entry.weather]?.emoji} {WEATHER_ICONS[entry.weather]?.label}</span>
-                                {entry.temperature && (<><span className="entry-meta-dot">•</span><span>{entry.temperature}</span></>)}
+                                {entry.temperature && (
+                                  <>
+                                    <span className="entry-meta-dot">•</span>
+                                    <span>{entry.temperature}</span>
+                                  </>
+                                )}
                                 <span className="entry-meta-dot">•</span>
-                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: moodData?.color, display: 'inline-block', flexShrink: 0 }} />
-                                <span>{moodData?.label}</span>
+                                <span 
+                                  className="mood-badge" 
+                                  style={{ '--mood-color': moodData?.color || 'var(--accent)' } as React.CSSProperties}
+                                >
+                                  <span className="mood-badge-dot" />
+                                  <span>{moodData?.label}</span>
+                                </span>
                               </div>
                               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                 <button
@@ -1969,6 +2133,20 @@ ${stripMarkdown(entry.content)}
                             <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: 1.6, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
                               {stripMarkdown(entry.content)}
                             </p>
+
+                            {/* Feed Card Image Thumbnails */}
+                            {entry.images && entry.images.length > 0 && (
+                              <div style={{ display: 'flex', gap: '6px', overflowX: 'hidden', marginTop: '10px' }}>
+                                {entry.images.slice(0, 5).map((imgPath, i) => (
+                                  <img key={i} src={imageSrcCache[imgPath] || ''} alt="" style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'cover', border: '1px solid rgba(0,0,0,0.1)' }} />
+                                ))}
+                                {entry.images.length > 5 && (
+                                  <div style={{ width: '40px', height: '40px', borderRadius: '6px', background: 'var(--bg-active)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                    +{entry.images.length - 5}
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '2px' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -2133,7 +2311,7 @@ ${stripMarkdown(entry.content)}
         aria-label="Write new diary entry"
       >
         {fabRipple && <span className="fab-ripple" />}
-        <PenTool size={22} color="#ffffff" />
+        <Feather size={22} color="#ffffff" />
       </button>
 
       {/* Side Creator Drawer Overlay and Panel */}
@@ -2144,10 +2322,7 @@ ${stripMarkdown(entry.content)}
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.6 }}
               exit={{ opacity: 0 }}
-              onClick={() => {
-                setIsDrawerOpen(false);
-                resetForm();
-              }}
+              onClick={handleCloseRequest}
               style={{
                 position: 'fixed',
                 top: 0,
@@ -2165,7 +2340,7 @@ ${stripMarkdown(entry.content)}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 24, stiffness: 200 }}
-              className="settings-panel"
+              className="settings-panel drawer-panel"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -2183,7 +2358,7 @@ ${stripMarkdown(entry.content)}
               {/* Drawer Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  {isEditMode ? <Pencil size={18} color="var(--accent-color)" /> : <PenTool size={18} color="var(--accent-color)" />}
+                  {isEditMode ? <Pencil size={18} color="var(--accent-color)" /> : <Feather size={18} color="var(--accent-color)" />}
                   <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.5rem', fontWeight: 600 }}>
                     {isEditMode
                       ? `Edit — ${parseLocalDate(targetDateString).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
@@ -2191,10 +2366,7 @@ ${stripMarkdown(entry.content)}
                   </h2>
                 </div>
                 <button
-                  onClick={() => {
-                    setIsDrawerOpen(false);
-                    resetForm();
-                  }}
+                  onClick={handleCloseRequest}
                   style={{
                     color: 'var(--text-secondary)',
                     cursor: 'pointer',
@@ -2213,95 +2385,7 @@ ${stripMarkdown(entry.content)}
                 </button>
               </div>
 
-              {/* Draft Restore Banner */}
-              <AnimatePresence>
-                {draftToRestore && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10, height: 0 }}
-                    animate={{ opacity: 1, y: 0, height: 'auto' }}
-                    exit={{ opacity: 0, y: -10, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    style={{
-                      overflow: 'hidden',
-                      marginBottom: '1.5rem'
-                    }}
-                  >
-                    <div style={{
-                      background: 'rgba(217, 119, 6, 0.08)',
-                      border: '1px solid rgba(217, 119, 6, 0.2)',
-                      borderLeft: '4px solid #d97706',
-                      borderRadius: '12px',
-                      padding: '1rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.75rem'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
-                        <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>📝</span>
-                        <div style={{ flex: 1 }}>
-                          <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f59e0b', margin: 0 }}>
-                            Unsaved Draft Found
-                          </p>
-                          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
-                            We found an auto-saved draft from {(() => {
-                              const dt = draftToRestore.savedAt ? new Date(draftToRestore.savedAt) : new Date();
-                              return `${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} on ${dt.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
-                            })()}.
-                          </p>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignSelf: 'flex-end' }}>
-                        <button
-                          type="button"
-                          onClick={handleRestoreDraft}
-                          style={{
-                            padding: '0.4rem 0.8rem',
-                            borderRadius: '8px',
-                            background: '#d97706',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontSize: '0.75rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease'
-                          }}
-                          onMouseEnter={e => e.currentTarget.style.background = '#b45309'}
-                          onMouseLeave={e => e.currentTarget.style.background = '#d97706'}
-                        >
-                          Restore Draft
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleDiscardDraft}
-                          style={{
-                            padding: '0.4rem 0.8rem',
-                            borderRadius: '8px',
-                            background: 'transparent',
-                            color: 'var(--text-secondary)',
-                            border: '1px solid var(--border-subtle)',
-                            fontSize: '0.75rem',
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease'
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                            e.currentTarget.style.color = '#ef4444';
-                            e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                            e.currentTarget.style.color = 'var(--text-secondary)';
-                            e.currentTarget.style.background = 'transparent';
-                          }}
-                        >
-                          Discard
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+
 
               {/* Form */}
               <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
@@ -2381,6 +2465,7 @@ ${stripMarkdown(entry.content)}
                     required
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                     placeholder="Capture this moment..."
                     className="form-input"
                   />
@@ -2395,6 +2480,7 @@ ${stripMarkdown(entry.content)}
                       required
                       value={location}
                       onChange={(e) => setLocation(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                       placeholder="e.g., Tokyo, Japan"
                       className="form-input"
                     />
@@ -2405,6 +2491,7 @@ ${stripMarkdown(entry.content)}
                       type="text"
                       value={temperature}
                       onChange={(e) => setTemperature(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
                       placeholder="e.g., 26° / 18°"
                       className="form-input"
                     />
@@ -2582,11 +2669,29 @@ ${stripMarkdown(entry.content)}
                     >
                       <ListOrdered size={14} />
                     </button>
+                    <div style={{ width: '1px', height: '18px', background: 'var(--border)', margin: '0 4px' }} />
+
+                    <button
+                      type="button"
+                      onClick={() => handleAddPhoto('CAMERA')}
+                      className="toolbar-btn"
+                      title="Take Photo"
+                    >
+                      <CameraIcon size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddPhoto('PHOTOS')}
+                      className="toolbar-btn"
+                      title="Upload Image"
+                    >
+                      <ImageIcon size={14} />
+                    </button>
 
                     <div style={{ width: '1px', height: '18px', background: 'var(--border)', margin: '0 4px' }} />
 
                     {/* Text Color Swatch Button & Popover */}
-                    <div style={{ position: 'relative' }}>
+                    <div style={{ position: 'relative' }} ref={colorBtnContainerRef}>
                       <button
                         type="button"
                         onClick={() => setIsColorPopoverOpen(!isColorPopoverOpen)}
@@ -2596,27 +2701,33 @@ ${stripMarkdown(entry.content)}
                         <span style={{ fontSize: '13px', fontWeight: 'bold', textDecoration: 'underline', color: 'var(--accent)', lineHeight: 1 }}>A</span>
                       </button>
                       
-                      {isColorPopoverOpen && (
+                      {isColorPopoverOpen && (() => {
+                        const rect = colorBtnContainerRef.current?.getBoundingClientRect();
+                        const popoverWidth = 160;
+                        const margin = 8;
+                        const rightEdge = rect ? rect.right : window.innerWidth - margin;
+                        const left = Math.max(margin, Math.min(rightEdge - popoverWidth, window.innerWidth - popoverWidth - margin));
+                        const top = rect ? rect.bottom + 6 : 100;
+                        return createPortal(
                         <>
                           <div
                             onClick={() => setIsColorPopoverOpen(false)}
-                            style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+                            style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
                           />
                           <div style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: 0,
-                            marginTop: '6px',
-                            zIndex: 1000,
+                            position: 'fixed',
+                            top: `${top}px`,
+                            left: `${left}px`,
+                            zIndex: 10000,
                             background: 'var(--bg-secondary)',
                             border: '1px solid var(--border)',
                             borderRadius: '10px',
                             padding: '8px',
-                            boxShadow: 'var(--shadow-md)',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
                             display: 'flex',
                             gap: '6px',
                             flexWrap: 'wrap',
-                            width: '160px'
+                            width: `${popoverWidth}px`
                           }}>
                             {TEXT_COLORS.map(c => (
                               <button
@@ -2644,9 +2755,37 @@ ${stripMarkdown(entry.content)}
                                 {c.color === 'inherit' && '✕'}
                               </button>
                             ))}
+
+                            {/* Custom color input field */}
+                            <input
+                              type="text"
+                              placeholder="#hex"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const val = e.currentTarget.value.trim();
+                                  if (val) {
+                                    applyColorFormat(val);
+                                    setIsColorPopoverOpen(false);
+                                  }
+                                }
+                              }}
+                              style={{
+                                width: '100%',
+                                marginTop: '8px',
+                                fontSize: '0.75rem',
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border)',
+                                background: 'var(--bg-card)',
+                                color: 'var(--text-primary)',
+                                outline: 'none'
+                              }}
+                            />
                           </div>
                         </>
-                      )}
+                        , document.body);
+                      })()}
                     </div>
                   </div>
 
@@ -2656,6 +2795,53 @@ ${stripMarkdown(entry.content)}
                     contentEditable={true}
                     onInput={handleEditorInput}
                     onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const selection = window.getSelection();
+                        if (selection && selection.rangeCount > 0) {
+                          const range = selection.getRangeAt(0);
+                          let container = range.startContainer;
+                          
+                          // Find closest element
+                          let element = container.nodeType === Node.ELEMENT_NODE 
+                            ? (container as HTMLElement) 
+                            : container.parentElement;
+                            
+                          // Find closest block parent inside contentRef
+                          let currentBlock: HTMLElement | null = null;
+                          let tempNode = element;
+                          while (tempNode && tempNode !== contentRef.current) {
+                            const name = tempNode.nodeName.toUpperCase();
+                            if (name === 'P' || name === 'DIV' || name === 'BLOCKQUOTE' || name === 'LI' || name === 'H1' || name === 'H2') {
+                              currentBlock = tempNode as HTMLElement;
+                              break;
+                            }
+                            tempNode = tempNode.parentElement;
+                          }
+                          
+                          // Check if selection is inside a blockquote
+                          let insideQuote = false;
+                          let quoteNode = element;
+                          while (quoteNode && quoteNode !== contentRef.current) {
+                            if (quoteNode.nodeName.toUpperCase() === 'BLOCKQUOTE') {
+                              insideQuote = true;
+                              break;
+                            }
+                            quoteNode = quoteNode.parentElement;
+                          }
+                          
+                          if (insideQuote) {
+                            const text = currentBlock ? currentBlock.textContent || '' : '';
+                            const html = currentBlock ? currentBlock.innerHTML || '' : '';
+                            const isEmpty = text.trim() === '' && (html === '' || html === '<br>' || html === '<br/>');
+                            
+                            if (isEmpty) {
+                              e.preventDefault();
+                              document.execCommand('formatBlock', false, 'P');
+                              return;
+                            }
+                          }
+                        }
+                      }
                       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'b') { e.preventDefault(); applyFormat('bold'); }
                       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); applyFormat('italic'); }
                       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); applyFormat('code'); }
@@ -2687,14 +2873,63 @@ ${stripMarkdown(entry.content)}
                 {/* Tags */}
                 <div>
                   <label className="form-label">Tags</label>
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={handleAddTag}
-                    placeholder="Add tags (press Enter or comma)"
-                    className="form-input"
-                  />
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value.includes(',')) {
+                          const parts = value.split(',');
+                          const newTags = [...tags];
+                          parts.slice(0, -1).forEach(p => {
+                            const clean = p.trim().toLowerCase();
+                            if (clean && !newTags.includes(clean)) {
+                              newTags.push(clean);
+                            }
+                          });
+                          setTags(newTags);
+                          setTagInput(parts[parts.length - 1]);
+                        } else {
+                          setTagInput(value);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.keyCode === 13) {
+                          e.preventDefault();
+                          const clean = tagInput.trim().toLowerCase().replace(/,/g, '');
+                          if (clean && !tags.includes(clean)) {
+                            setTags([...tags, clean]);
+                          }
+                          setTagInput('');
+                        }
+                      }}
+                      placeholder="Add tags (press Enter or comma)"
+                      className="form-input"
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = tagInput.trim().toLowerCase().replace(/,/g, '');
+                        if (clean && !tags.includes(clean)) {
+                          setTags([...tags, clean]);
+                        }
+                        setTagInput('');
+                      }}
+                      style={{
+                        padding: '0 16px',
+                        borderRadius: '12px',
+                        background: 'var(--accent)',
+                        color: '#ffffff',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
                   {tags.length > 0 && (
                     <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
                       <AnimatePresence>
@@ -2735,6 +2970,27 @@ ${stripMarkdown(entry.content)}
                     </div>
                   )}
                 </div>
+
+                {/* Drawer Image Thumbnails */}
+                {images.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', padding: '4px 0', marginTop: '8px' }}>
+                    {images.map((imgPath, idx) => (
+                      <div key={idx} style={{ position: 'relative', width: '60px', height: '60px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                        <img src={imageSrcCache[imgPath] || ''} alt={`Preview ${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImages(prev => prev.filter((_, i) => i !== idx));
+                            deleteEntryImage(imgPath);
+                          }}
+                          style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(0,0,0,0.5)', color: 'white', borderRadius: '50%', padding: '2px', cursor: 'pointer', border: 'none' }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Card Color Picker */}
                 <div>
@@ -2810,31 +3066,122 @@ ${stripMarkdown(entry.content)}
                       })}
                     </div>
 
-                    {/* Custom hex input */}
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <input
-                        type="color"
-                        value={customColorInput.trim() || cardColor || '#3B82F6'}
-                        onChange={(e) => { setCustomColorInput(e.target.value); setCardColor(undefined); }}
-                        style={{
-                          width: '38px',
-                          height: '38px',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border-subtle)',
-                          background: 'var(--bg-card)',
-                          cursor: 'pointer',
-                          padding: '2px'
-                        }}
-                        title="Pick a custom color"
-                      />
-                      <input
-                        type="text"
-                        value={customColorInput}
-                        onChange={(e) => { setCustomColorInput(e.target.value); if (e.target.value) setCardColor(undefined); }}
-                        placeholder="#hex or any CSS color"
-                        className="form-input"
-                        style={{ flex: 1, padding: '0.5rem 0.85rem', fontSize: '0.85rem' }}
-                      />
+                    {/* Custom hex input & inline slider */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div
+                          style={{
+                            width: '38px',
+                            height: '38px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border)',
+                            background: customColorInput.trim() ? customColorInput.trim() : '#1A92B4',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: 'var(--shadow-sm)'
+                          }}
+                          onClick={() => {
+                            if (!customColorInput.trim()) {
+                              setCustomColorInput('#1A92B4');
+                            }
+                            setCardColor(undefined);
+                            setShowCardColorSliders(!showCardColorSliders);
+                          }}
+                          title="Click to toggle custom color sliders"
+                        >
+                          <span style={{ fontSize: '1.1rem' }}>🎨</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={customColorInput}
+                          onChange={(e) => { setCustomColorInput(e.target.value); if (e.target.value) setCardColor(undefined); }}
+                          placeholder="#hex or any CSS color"
+                          className="form-input"
+                          style={{ flex: 1, padding: '0.5rem 0.85rem', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      {showCardColorSliders && (
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '10px',
+                          background: 'rgba(0, 0, 0, 0.2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '12px',
+                          padding: '12px',
+                          marginTop: '4px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Custom Card Color</span>
+                            <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--accent)' }}>
+                              {customColorInput || '#1A92B4'}
+                            </span>
+                          </div>
+                          
+                          {/* Hue Slider */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              <span>Hue</span>
+                              <span>{hexToHsl(customColorInput || '#1A92B4').h}°</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0"
+                              max="360"
+                              value={hexToHsl(customColorInput || '#1A92B4').h}
+                              onChange={(e) => {
+                                const hue = parseInt(e.target.value);
+                                const hsl = hexToHsl(customColorInput || '#1A92B4');
+                                const hex = hslToHex(hue, hsl.s || 80, hsl.l || 50);
+                                setCustomColorInput(hex);
+                                setCardColor(undefined);
+                              }}
+                              className="custom-slider"
+                              style={{
+                                width: '100%',
+                                height: '10px',
+                                borderRadius: '5px',
+                                background: 'linear-gradient(to right, red, yellow, green, cyan, blue, magenta, red)',
+                                outline: 'none',
+                                cursor: 'pointer'
+                              }}
+                            />
+                          </div>
+
+                          {/* Brightness/Lightness Slider */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                              <span>Brightness</span>
+                              <span>{hexToHsl(customColorInput || '#1A92B4').l}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="10"
+                              max="90"
+                              value={hexToHsl(customColorInput || '#1A92B4').l}
+                              onChange={(e) => {
+                                const lightness = parseInt(e.target.value);
+                                const hsl = hexToHsl(customColorInput || '#1A92B4');
+                                const hex = hslToHex(hsl.h, hsl.s || 80, lightness);
+                                setCustomColorInput(hex);
+                                setCardColor(undefined);
+                              }}
+                              className="custom-slider"
+                              style={{
+                                width: '100%',
+                                height: '8px',
+                                borderRadius: '4px',
+                                background: `linear-gradient(to right, #000, ${hslToHex(hexToHsl(customColorInput || '#1A92B4').h, 80, 50)}, #fff)`,
+                                outline: 'none',
+                                cursor: 'pointer'
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2843,10 +3190,7 @@ ${stripMarkdown(entry.content)}
                 <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsDrawerOpen(false);
-                      resetForm();
-                    }}
+                    onClick={handleCloseRequest}
                     style={{
                       flex: 1,
                       padding: '0.875rem',
@@ -2911,7 +3255,7 @@ ${stripMarkdown(entry.content)}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 24, stiffness: 200 }}
-              className="settings-panel"
+              className="settings-panel drawer-panel"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -3044,28 +3388,93 @@ ${stripMarkdown(entry.content)}
                         justifyContent: 'center',
                         background: isCustomTheme ? customThemeColor : 'conic-gradient(red, yellow, green, cyan, blue, magenta, red)',
                       }}
+                      onClick={() => {
+                        setIsCustomTheme(true);
+                      }}
                       title="Custom Accent Color"
                     >
-                      <input
-                        type="color"
-                        value={customThemeColor}
-                        onChange={(e) => {
-                          setIsCustomTheme(true);
-                          setCustomThemeColor(e.target.value);
-                        }}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          opacity: 0,
-                          cursor: 'pointer',
-                        }}
-                      />
                       {isCustomTheme && <Check size={18} color="#ffffff" />}
                     </div>
                   </div>
+
+                  {isCustomTheme && (
+                    <div style={{
+                      marginTop: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      background: 'var(--bg-active)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '16px',
+                      padding: '16px',
+                      width: '100%'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Custom Accent Color</span>
+                        <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--accent)' }}>{customThemeColor}</span>
+                      </div>
+                      
+                      {/* Hue Slider */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                          <span>Hue</span>
+                          <span>{hexToHsl(customThemeColor).h}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="360"
+                          value={hexToHsl(customThemeColor).h}
+                          onChange={(e) => {
+                            const hue = parseInt(e.target.value);
+                            const hsl = hexToHsl(customThemeColor);
+                            const hex = hslToHex(hue, hsl.s || 80, hsl.l || 50);
+                            setCustomThemeColor(hex);
+                            setIsCustomTheme(true);
+                          }}
+                          className="custom-slider"
+                          style={{
+                            width: '100%',
+                            height: '10px',
+                            borderRadius: '5px',
+                            background: 'linear-gradient(to right, red, yellow, green, cyan, blue, magenta, red)',
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </div>
+
+                      {/* Brightness Slider */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                          <span>Brightness</span>
+                          <span>{hexToHsl(customThemeColor).l}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="10"
+                          max="90"
+                          value={hexToHsl(customThemeColor).l}
+                          onChange={(e) => {
+                            const brightness = parseInt(e.target.value);
+                            const hsl = hexToHsl(customThemeColor);
+                            const hex = hslToHex(hsl.h, hsl.s || 80, brightness);
+                            setCustomThemeColor(hex);
+                            setIsCustomTheme(true);
+                          }}
+                          className="custom-slider"
+                          style={{
+                            width: '100%',
+                            height: '8px',
+                            borderRadius: '4px',
+                            background: `linear-gradient(to right, #000, ${hslToHex(hexToHsl(customThemeColor).h, 80, 50)}, #fff)`,
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Sort Option */}
@@ -3208,68 +3617,7 @@ ${stripMarkdown(entry.content)}
                   </div>
                 </div>
 
-                {/* 3. Demo Data Actions */}
-                <div>
-                  <label className="form-label">Actions</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-                    <button
-                      onClick={() => {
-                        handleSeed();
-                        setIsSettingsOpen(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '0.75rem 1rem',
-                        borderRadius: '12px',
-                        border: '1px solid var(--border)',
-                        background: seeded ? 'var(--success-subtle)' : 'var(--bg-card)',
-                        color: seeded ? 'var(--success)' : 'var(--text-primary)',
-                        fontSize: '0.85rem',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.5rem',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      {seeded ? <Check size={16} /> : <PlusCircle size={16} />}
-                      {seeded ? 'Seeded Successfully!' : 'Seed Demo entries'}
-                    </button>
 
-                    {entries.length > 0 && (
-                      <button
-                        className="danger-btn"
-                        onClick={() => {
-                          if (confirm('Are you sure you want to clear all entries? This cannot be undone.')) {
-                            handleClearAll();
-                            setIsSettingsOpen(false);
-                          }
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '0.75rem 1rem',
-                          borderRadius: '12px',
-                          border: '1px solid var(--danger-border)',
-                          background: 'var(--danger-subtle)',
-                          color: 'var(--danger)',
-                          fontSize: '0.85rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '0.5rem',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <Trash2 size={15} />
-                        Clear All Data
-                      </button>
-                    )}
-                  </div>
-                </div>
 
                 {/* 4. Journal Statistics */}
                 <div style={{
@@ -3319,7 +3667,7 @@ ${stripMarkdown(entry.content)}
             />
 
             {/* Morph Card Center Layout */}
-            <div style={{
+            <div className="hero-modal-container" style={{
               position: 'fixed',
               top: 0,
               left: 0,
@@ -3333,6 +3681,7 @@ ${stripMarkdown(entry.content)}
             }}>
               <motion.div
                 layoutId={selectedEntry.id}
+                className="hero-modal-inner"
                 style={{
                   width: '100%',
                   maxWidth: '520px',
@@ -3347,125 +3696,221 @@ ${stripMarkdown(entry.content)}
                   overflow: 'hidden'
                 }}
               >
-                {/* Colored Header Block */}
+                {/* Colored Header Block with Image Carousel */}
                 <div style={{
-                  background: getEntryAccentColor(selectedEntry.cardColor),
-                  padding: '2.5rem 2rem 2rem',
                   position: 'relative',
-                  color: '#ffffff',
+                  overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '0.75rem'
+                  minHeight: '280px',
+                  color: '#ffffff'
                 }}>
-                  {/* Edit Button — top left */}
-                  <button
-                    onClick={() => openEditorForEntry(selectedEntry)}
-                    style={{
-                      position: 'absolute',
-                      top: '1.25rem',
-                      left: '1.25rem',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      cursor: 'pointer',
-                      borderRadius: '50%',
-                      padding: '0.35rem',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                  {/* Background Layer: Solid Color or Image Carousel */}
+                  <div style={{ position: 'absolute', inset: 0, zIndex: 0, background: getEntryAccentColor(selectedEntry.cardColor) }}>
+                    {selectedEntry.images && selectedEntry.images.length > 0 && (
+                      <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>
+                        <AnimatePresence initial={false} custom={headerCarouselDirection}>
+                          <motion.img
+                            key={headerCarouselIndex}
+                            src={imageSrcCache[selectedEntry.images[headerCarouselIndex]] || ''}
+                            custom={headerCarouselDirection}
+                            variants={carouselVariants}
+                            initial="enter"
+                            animate="center"
+                            exit="exit"
+                            transition={{ x: { type: 'spring', stiffness: 300, damping: 30 }, opacity: { duration: 0.2 } }}
+                            drag="x"
+                            dragConstraints={{ left: 0, right: 0 }}
+                            dragElastic={1}
+                            onDragEnd={(_, { offset, velocity }) => {
+                              const swipe = Math.abs(offset.x) * velocity.x;
+                              if (swipe < -10000 || offset.x < -80) {
+                                paginateHeaderCarousel(1, selectedEntry.images!.length);
+                              } else if (swipe > 10000 || offset.x > 80) {
+                                paginateHeaderCarousel(-1, selectedEntry.images!.length);
+                              }
+                            }}
+                            onClick={() => { setLightboxImages(selectedEntry.images || []); setLightboxIndex(headerCarouselIndex); setIsLightboxOpen(true); }}
+                            style={{ position: 'absolute', width: '100%', height: '100%', objectFit: 'cover', cursor: 'grab' }}
+                            whileTap={{ cursor: 'grabbing' }}
+                            alt="Entry attachment"
+                          />
+                        </AnimatePresence>
+                        {/* Pagination Dots */}
+                        {selectedEntry.images.length > 1 && (
+                          <div style={{ position: 'absolute', bottom: '14px', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '6px', zIndex: 2, pointerEvents: 'none' }}>
+                            {selectedEntry.images.map((_, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  width: i === headerCarouselIndex ? '18px' : '6px',
+                                  height: '6px',
+                                  borderRadius: '3px',
+                                  backgroundColor: i === headerCarouselIndex ? '#ffffff' : 'rgba(255,255,255,0.4)',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                                  transition: 'all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)'
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Gradient Overlay for Readability */}
+                    {selectedEntry.images && selectedEntry.images.length > 0 && (
+                      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.85) 100%)', pointerEvents: 'none' }} />
+                    )}
+                  </div>
+
+                  {/* Content Wrapper (zIndex 1) */}
+                  <div style={{ position: 'relative', zIndex: 1, padding: '2.5rem 2rem 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', gap: '0.75rem', pointerEvents: 'none' }}>
+                    
+                    {/* Edit Button — top left */}
+                    <button
+                      onClick={() => openEditorForEntry(selectedEntry)}
+                      style={{
+                        position: 'absolute',
+                        top: '1.25rem',
+                        left: '1.25rem',
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        cursor: 'pointer',
+                        borderRadius: '50%',
+                        padding: '0.35rem',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.15s ease',
+                        background: 'transparent',
+                        pointerEvents: 'auto'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                      title="Edit this entry"
+                    >
+                      <Pencil size={14} />
+                    </button>
+
+                    {/* View Photos Overlay (top right, left of close button) */}
+                    {selectedEntry.images && selectedEntry.images.length > 0 && (
+                      <button
+                        onClick={() => { setLightboxImages(selectedEntry.images || []); setLightboxIndex(0); setIsLightboxOpen(true); }}
+                        style={{
+                          position: 'absolute',
+                          top: '1.25rem',
+                          right: '3.5rem',
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          cursor: 'pointer',
+                          borderRadius: '50%',
+                          padding: '0.35rem',
+                          border: '1px solid rgba(255, 255, 255, 0.3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.15s ease',
+                          background: 'rgba(0,0,0,0.2)',
+                          backdropFilter: 'blur(4px)',
+                          pointerEvents: 'auto'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.4)'}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.2)'}
+                        title="View Full Photos"
+                      >
+                        <Eye size={16} />
+                      </button>
+                    )}
+
+                    {/* Close Button overlay (top right) */}
+                    <button
+                      onClick={() => setSelectedEntry(null)}
+                      style={{
+                        position: 'absolute',
+                        top: '1.25rem',
+                        right: '1.25rem',
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        cursor: 'pointer',
+                        borderRadius: '50%',
+                        padding: '0.35rem',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.15s ease',
+                        background: 'transparent',
+                        pointerEvents: 'auto'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)'}
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                      title="Close"
+                    >
+                      <X size={16} />
+                    </button>
+
+                    <div style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '1.5px',
+                      color: 'rgba(255, 255, 255, 0.85)',
+                      marginTop: '1rem'
+                    }}>
+                      {parseLocalDate(selectedEntry.dateString).toLocaleDateString(undefined, { month: 'long' })}
+                    </div>
+
+                    <div style={{
+                      fontFamily: 'var(--font-sans)',
+                      fontSize: '4.5rem',
+                      fontWeight: 800,
+                      lineHeight: 0.9,
+                      letterSpacing: '-2px',
+                      color: '#ffffff',
+                      textShadow: selectedEntry.images && selectedEntry.images.length > 0 ? '0 4px 12px rgba(0,0,0,0.2)' : 'none'
+                    }}>
+                      {parseLocalDate(selectedEntry.dateString).getDate().toString().padStart(2, '0')}
+                    </div>
+
+                    <div style={{
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      textShadow: selectedEntry.images && selectedEntry.images.length > 0 ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
+                    }}>
+                      {parseLocalDate(selectedEntry.dateString).toLocaleDateString(undefined, { weekday: 'long' })}. {new Date(selectedEntry.createdAt).toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                      })}
+                    </div>
+
+                    {/* Meteorological and Location Ribbon */}
+                    <div style={{
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.15s ease',
-                      background: 'transparent'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                    title="Edit this entry"
-                  >
-                    <Pencil size={14} />
-                  </button>
-
-                  {/* Close Button overlay */}
-                  <button
-                    onClick={() => setSelectedEntry(null)}
-                    style={{
-                      position: 'absolute',
-                      top: '1.25rem',
-                      right: '1.25rem',
-                      color: 'rgba(255, 255, 255, 0.8)',
-                      cursor: 'pointer',
-                      borderRadius: '50%',
-                      padding: '0.35rem',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.15s ease',
-                      background: 'transparent'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                    title="Close"
-                  >
-                    <X size={16} />
-                  </button>
-
-                  <div style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '1.5px',
-                    color: 'rgba(255, 255, 255, 0.75)'
-                  }}>
-                    {parseLocalDate(selectedEntry.dateString).toLocaleDateString(undefined, { month: 'long' })}
-                  </div>
-
-                  <div style={{
-                    fontFamily: 'var(--font-sans)',
-                    fontSize: '4.5rem',
-                    fontWeight: 800,
-                    lineHeight: 0.9,
-                    letterSpacing: '-2px',
-                    color: '#ffffff'
-                  }}>
-                    {parseLocalDate(selectedEntry.dateString).getDate().toString().padStart(2, '0')}
-                  </div>
-
-                  <div style={{
-                    fontSize: '0.9rem',
-                    fontWeight: 600,
-                    color: 'rgba(255, 255, 255, 0.85)'
-                  }}>
-                    {parseLocalDate(selectedEntry.dateString).toLocaleDateString(undefined, { weekday: 'long' })}. {new Date(selectedEntry.createdAt).toLocaleTimeString(undefined, {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: false
-                    })}
-                  </div>
-
-                  {/* Meteorological and Location Ribbon */}
-                  <div style={{
-                    display: 'flex',
-                    gap: '0.75rem',
-                    fontSize: '0.75rem',
-                    background: 'rgba(255, 255, 255, 0.15)',
-                    padding: '0.35rem 0.85rem',
-                    borderRadius: '30px',
-                    marginTop: '0.25rem',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: '#ffffff',
-                    fontWeight: 500
-                  }}>
-                    <span>
-                      {WEATHER_ICONS[selectedEntry.weather]?.emoji} {WEATHER_ICONS[selectedEntry.weather]?.label.toUpperCase()} {selectedEntry.temperature}
-                    </span>
-                    <span>•</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
-                      <MapPin size={10} /> {selectedEntry.location}
-                    </span>
-                    <span>•</span>
-                    <span>
-                      {MOODS.find(m => m.type === selectedEntry.mood)?.icon} {MOODS.find(m => m.type === selectedEntry.mood)?.label.toUpperCase()}
-                    </span>
+                      gap: '0.75rem',
+                      fontSize: '0.75rem',
+                      background: selectedEntry.images && selectedEntry.images.length > 0 ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.15)',
+                      backdropFilter: selectedEntry.images && selectedEntry.images.length > 0 ? 'blur(8px)' : 'none',
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '30px',
+                      marginTop: '0.25rem',
+                      border: selectedEntry.images && selectedEntry.images.length > 0 ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255, 255, 255, 0.2)',
+                      color: '#ffffff',
+                      fontWeight: 500,
+                      pointerEvents: 'auto'
+                    }}>
+                      <span>
+                        {WEATHER_ICONS[selectedEntry.weather]?.emoji} {WEATHER_ICONS[selectedEntry.weather]?.label.toUpperCase()} {selectedEntry.temperature}
+                      </span>
+                      <span>•</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.15rem' }}>
+                        <MapPin size={10} /> {selectedEntry.location}
+                      </span>
+                      <span>•</span>
+                      <span>
+                        {MOODS.find(m => m.type === selectedEntry.mood)?.icon} {MOODS.find(m => m.type === selectedEntry.mood)?.label.toUpperCase()}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -3477,6 +3922,7 @@ ${stripMarkdown(entry.content)}
                   flexDirection: 'column',
                   gap: '1.25rem'
                 }}>
+
                   {/* Title */}
                   <h2 style={{
                     fontFamily: 'var(--font-serif)',
@@ -3548,6 +3994,20 @@ ${stripMarkdown(entry.content)}
             {contextMenu.hasSelection ? 'Format Selection' : 'Insert Format'}
           </div>
 
+          {contextMenu.hasSelection && (
+            <>
+              <div className="menu-item" onClick={() => { document.execCommand('copy'); setContextMenu(prev => ({ ...prev, visible: false })); }}>
+                <span className="menu-label-icon"><Copy size={13} style={{ marginRight: 8 }} /> Copy</span>
+                <span className="menu-shortcut">Ctrl+C</span>
+              </div>
+              <div className="menu-item" onClick={() => { document.execCommand('cut'); setContextMenu(prev => ({ ...prev, visible: false })); }}>
+                <span className="menu-label-icon"><Scissors size={13} style={{ marginRight: 8 }} /> Cut</span>
+                <span className="menu-shortcut">Ctrl+X</span>
+              </div>
+              <div className="menu-separator" />
+            </>
+          )}
+
           {/* Inline formats */}
           <div className="menu-item" onClick={() => { applyFormat('bold'); setContextMenu(prev => ({ ...prev, visible: false })); }}>
             <span className="menu-label-icon"><Bold size={13} style={{ marginRight: 8 }} /> Bold</span>
@@ -3615,42 +4075,7 @@ ${stripMarkdown(entry.content)}
                 />
               ))}
               
-              {/* Custom Rainbow Color Picker */}
-              <div
-                title="Custom Color"
-                style={{
-                  position: 'relative',
-                  width: '18px',
-                  height: '18px',
-                  borderRadius: '50%',
-                  background: 'conic-gradient(red, yellow, green, cyan, blue, magenta, red)',
-                  border: '1px solid var(--border)',
-                  cursor: 'pointer',
-                  transition: 'transform 0.15s ease',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.2)'}
-                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-              >
-                <input
-                  type="color"
-                  onChange={(e) => {
-                    applyColorFormat(e.target.value);
-                    setContextMenu(prev => ({ ...prev, visible: false }));
-                  }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                  }}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    opacity: 0,
-                    cursor: 'pointer',
-                  }}
-                />
-              </div>
+
 
               <button
                 title="Clear Color"
@@ -3687,6 +4112,217 @@ ${stripMarkdown(entry.content)}
           </div>
         </div>
       )}
+
+      {/* Facebook-style Close/Draft Confirmation Modal */}
+      {showCloseConfirm && createPortal(
+        <AnimatePresence>
+          {showCloseConfirm && (
+            <>
+              {/* Modal Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.6 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowCloseConfirm(false)}
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: '#000000',
+                  zIndex: 9998,
+                  backdropFilter: 'blur(4px)'
+                }}
+              />
+
+              {/* Modal Centering Wrapper */}
+              <div
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  width: '100vw',
+                  height: '100vh',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 9999,
+                  pointerEvents: 'none',
+                  boxSizing: 'border-box',
+                  padding: '1rem'
+                }}
+              >
+                {/* Modal Dialog */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  style={{
+                    pointerEvents: 'auto',
+                    width: '90vw',
+                    maxWidth: '400px',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '16px',
+                    padding: '1.5rem',
+                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1.25rem'
+                  }}
+                >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                  {isEditMode ? 'Discard unsaved changes?' : 'Save this as a draft?'}
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                  {isEditMode 
+                    ? 'You have unsaved changes. Are you sure you want to discard them?' 
+                    : 'If you discard now, your writing will be permanently lost. You can save it as a draft to finish it later.'}
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {!isEditMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      DiaryStorageService.saveDraft(title, content);
+                      setShowCloseConfirm(false);
+                      setIsDrawerOpen(false);
+                      resetForm();
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem',
+                      borderRadius: '10px',
+                      background: 'var(--accent)',
+                      color: '#ffffff',
+                      border: 'none',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.filter = 'brightness(0.9)'}
+                    onMouseLeave={e => e.currentTarget.style.filter = 'none'}
+                  >
+                    Save as Draft
+                  </button>
+                )}
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isEditMode) {
+                      DiaryStorageService.clearDraft();
+                    }
+                    setShowCloseConfirm(false);
+                    setIsDrawerOpen(false);
+                    resetForm();
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    color: '#ef4444',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
+                >
+                  {isEditMode ? 'Discard Changes' : 'Discard Draft'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCloseConfirm(false)}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border)',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  Keep Editing
+                </button>
+                </div>
+              </motion.div>
+              </div>
+            </>
+          )}
+        </AnimatePresence>
+      , document.body)}
+
+      {/* Fullscreen Image Lightbox */}
+      <AnimatePresence>
+        {isLightboxOpen && lightboxImages.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}
+          >
+            <button
+              onClick={() => setIsLightboxOpen(false)}
+              style={{ position: 'absolute', top: '20px', right: '20px', color: 'white', padding: '10px', zIndex: 10, background: 'transparent', border: 'none', cursor: 'pointer' }}
+            >
+              <X size={32} />
+            </button>
+            
+            {/* Arrows (Only show if multiple images exist) */}
+            {lightboxImages.length > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '0 10px', position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 10, pointerEvents: 'none' }}>
+                <button
+                  onClick={() => setLightboxIndex(prev => Math.max(0, prev - 1))}
+                  style={{ color: 'white', opacity: lightboxIndex > 0 ? 0.8 : 0, padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '50%', border: 'none', cursor: lightboxIndex > 0 ? 'pointer' : 'default', pointerEvents: lightboxIndex > 0 ? 'auto' : 'none', transition: 'opacity 0.2s' }}
+                  disabled={lightboxIndex === 0}
+                >
+                  <ChevronLeft size={28} />
+                </button>
+                <button
+                  onClick={() => setLightboxIndex(prev => Math.min(lightboxImages.length - 1, prev + 1))}
+                  style={{ color: 'white', opacity: lightboxIndex < lightboxImages.length - 1 ? 0.8 : 0, padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '50%', border: 'none', cursor: lightboxIndex < lightboxImages.length - 1 ? 'pointer' : 'default', pointerEvents: lightboxIndex < lightboxImages.length - 1 ? 'auto' : 'none', transition: 'opacity 0.2s' }}
+                  disabled={lightboxIndex === lightboxImages.length - 1}
+                >
+                  <ChevronRight size={28} />
+                </button>
+              </div>
+            )}
+
+            <motion.img
+              key={lightboxIndex}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              src={imageSrcCache[lightboxImages[lightboxIndex]] || ''}
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
+            {lightboxImages.length > 1 && (
+              <div style={{ position: 'absolute', bottom: '30px', color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem', fontWeight: 600, letterSpacing: '1px', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                {lightboxIndex + 1} / {lightboxImages.length}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

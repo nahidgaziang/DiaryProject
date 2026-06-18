@@ -30,10 +30,10 @@ export async function detectLocation(): Promise<LocationData> {
           // Reverse geocode using OpenStreetMap Nominatim (Free, no keys)
           const res = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
-            { headers: { 'User-Agent': 'AureliusDiaryApp/1.0' } }
+            { headers: { 'User-Agent': 'DailyDriveApp/1.0' } }
           );
           const data = await res.json();
-          const city = data.address.city || data.address.town || data.address.village || data.address.suburb || 'Local Area';
+          const city = data.address.city || data.address.town || data.address.village || data.address.suburb || data.address.county || data.address.state_district || data.address.state || 'Local Area';
           const country = data.address.country || '';
           resolve({
             city: country ? `${city}, ${country}` : city,
@@ -53,7 +53,7 @@ export async function detectLocation(): Promise<LocationData> {
         // Geolocation failed or denied -> Fallback to IP Geolocation
         resolve(fetchIpLocation());
       },
-      { timeout: 5000 }
+      { timeout: 15000, enableHighAccuracy: false, maximumAge: 300000 }
     );
   });
 }

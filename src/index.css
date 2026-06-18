@@ -1,5 +1,5 @@
 /* ================================================================
-   AURELIUS — Main Stylesheet
+   DAILYDRIVE — Main Stylesheet
    Solid colors only. No gradients. Clean dark/light consistency.
    ================================================================ */
 @import './variables.css';
@@ -78,6 +78,7 @@ button, input, textarea, select {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   transition: background 0.3s ease, border-color 0.3s ease;
+  padding: 14px 24px;
 }
 
 /* ================================================================
@@ -952,5 +953,459 @@ button, input, textarea, select {
   background: var(--accent-subtle);
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ================================================================
+   SOLID CARD — generic card surface
+   ================================================================ */
+.solid-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  transition: border-color 0.2s ease;
+}
+
+
+/* ================================================================
+   ENTRY METADATA ROW & MOOD BADGES
+   ================================================================ */
+.entry-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.entry-meta-dot {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin: 0 2px;
+  opacity: 0.5;
+  user-select: none;
+}
+
+.mood-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--mood-color, var(--accent)) 12%, transparent);
+  color: var(--mood-color, var(--accent));
+  border: 1px solid color-mix(in srgb, var(--mood-color, var(--accent)) 22%, transparent);
+  line-height: 1;
+  transition: all 0.2s ease;
+}
+
+/* Hovering entry card slightly highlights the mood badge too */
+.entry-card:hover .mood-badge {
+  transform: scale(1.03);
+  border-color: color-mix(in srgb, var(--mood-color, var(--accent)) 35%, transparent);
+}
+
+.mood-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--mood-color, var(--accent));
+  display: inline-block;
+  flex-shrink: 0;
+}
+/* ================================================================
+   RESPONSIVE — Mobile-first breakpoints
+   ================================================================ */
+
+/* ── Tablet (≤768px) ─────────────────────────────────────── */
+@media (max-width: 768px) {
+
+  /* Header: tighter horizontal padding */
+  .app-header {
+    padding: 12px 16px !important;
+  }
+
+  /* Tab bar: slightly smaller tabs */
+  .tab-button {
+    padding: 6px 14px;
+    font-size: 0.78rem;
+  }
+
+  /* Entry cards: slightly less padding */
+  .entry-card {
+    padding: 14px 16px;
+  }
+
+  /* Date column: narrower */
+  .date-column {
+    width: 46px;
+  }
+
+  /* FAB — stay right of content, not too far out */
+  .fab-btn {
+    right: 20px;
+    bottom: 24px;
+  }
+
+  /* Calendar: cell padding tighter */
+  .calendar-cell {
+    padding: 5px 4px 4px;
+  }
+
+  /* Stats-card grids — let them wrap */
+  .stats-card {
+    min-width: 0 !important;
+  }
+}
+
+/* ── Small mobile (≤640px) ───────────────────────────────── */
+@media (max-width: 640px) {
+
+  body {
+    font-size: 14px;
+  }
+
+  /* Header: full-width compact */
+  .app-header {
+    padding: 10px 14px !important;
+  }
+
+  /* Main content: tighter side padding */
+  .main-content {
+    padding: 16px 12px 0 !important;
+  }
+
+  /* Tab bar: fill width on small screens */
+  .tab-bar {
+    width: 100% !important;
+  }
+
+  .tab-button {
+    flex: 1;
+    padding: 7px 8px;
+    font-size: 0.74rem;
+  }
+
+  /* Entry card rows: collapse date + card into a column */
+  .io-card {
+    flex-direction: column !important;
+    gap: 6px !important;
+  }
+
+  /* Date column becomes a horizontal strip */
+  .date-column {
+    width: 100% !important;
+    flex-direction: row !important;
+    justify-content: flex-start !important;
+    gap: 6px !important;
+  }
+
+  .date-day-number {
+    font-size: 1.4rem !important;
+    line-height: 1 !important;
+  }
+
+  .date-day-label {
+    font-size: 0.7rem !important;
+    letter-spacing: 0.8px !important;
+    align-self: flex-end;
+    margin-bottom: 2px;
+  }
+
+  /* Entry card: full width after date strip */
+  .entry-card {
+    padding: 12px 14px;
+  }
+
+  /* Hero modal: fill most of the screen */
+  .hero-modal-container {
+    padding: 0.75rem !important;
+  }
+
+  /* FAB: standard position bottom-right */
+  .fab-btn {
+    right: 16px;
+    bottom: 20px;
+    width: 48px;
+    height: 48px;
+  }
+
+  /* Calendar: smaller cell numbers */
+  .calendar-cell-number {
+    font-size: 0.72rem;
+  }
+
+  /* Search card: less padding */
+  .solid-card {
+    padding: 12px 14px !important;
+  }
+
+  /* Filter pills: wrap nicely */
+  .filter-pill {
+    font-size: 0.68rem;
+    padding: 3px 10px;
+  }
+
+  /* Mood badge: compact */
+  .mood-badge {
+    font-size: 0.68rem;
+    padding: 2px 8px;
+  }
+
+  /* Formatting toolbar: tighter */
+  .formatting-toolbar {
+    padding: 4px 8px !important;
+    gap: 2px !important;
+  }
+
+  .toolbar-btn {
+    width: 26px;
+    height: 26px;
+  }
+
+  /* Drawer: full-width with comfortable padding on mobile */
+  .drawer-panel {
+    padding: 1.5rem 1.25rem !important;
+    max-width: 100% !important;
+  }
+
+  /* Hero modal: nearly full-screen on mobile */
+  .hero-modal-inner {
+    border-radius: 20px !important;
+  }
+
+  /* Settings panel */
+  .settings-panel {
+    padding: 1.5rem 1.25rem !important;
+    max-width: 100% !important;
+  }
+}
+
+/* ── Phone (≤480px) ──────────────────────────────────────── */
+@media (max-width: 480px) {
+
+  body {
+    font-size: 13.5px;
+  }
+
+  .app-header {
+    padding: 9px 12px !important;
+  }
+
+  /* Logo: smaller on tiny screens */
+  .logo-badge {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* h1 wordmark: compact */
+  .app-header h1 {
+    font-size: 1.35rem !important;
+  }
+
+  /* Tab bar: very compact */
+  .tab-button {
+    padding: 6px 6px;
+    font-size: 0.7rem;
+    letter-spacing: 0;
+  }
+
+  /* Entry card title */
+  .entry-card h3 {
+    font-size: 0.95rem;
+  }
+
+  /* FAB: slightly smaller */
+  .fab-btn {
+    width: 44px;
+    height: 44px;
+    right: 12px;
+    bottom: 16px;
+  }
+
+  /* Calendar header days: single letter */
+  .calendar-header-day {
+    font-size: 0.6rem;
+    letter-spacing: 0;
+    padding: 4px 0;
+  }
+
+  /* Entry meta: wrap gracefully */
+  .entry-meta-pill {
+    font-size: 0.7rem;
+    gap: 5px;
+  }
+
+  /* Prose: slightly smaller in detail view */
+  .prose {
+    font-size: 0.88rem;
+  }
+
+  .prose h1 {
+    font-size: 1.25rem;
+  }
+
+  .prose h2 {
+    font-size: 1.05rem;
+  }
+
+  /* Form inputs: adequate tap size */
+  .form-input,
+  .search-input {
+    padding: 10px 12px;
+    font-size: 0.87rem;
+  }
+
+  .search-input {
+    padding-left: 36px;
+  }
+
+  /* Buttons: full-width comfortable tap targets */
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    padding: 11px 16px;
+    font-size: 0.84rem;
+  }
+
+  /* Drawer padding */
+  .drawer-panel,
+  .settings-panel {
+    padding: 1.25rem 1rem !important;
+  }
+
+  /* Context menu: wider on tiny screen */
+  .custom-context-menu {
+    min-width: 180px;
+    font-size: 0.8rem;
+  }
+}
+
+/* ── Touch: bigger tap targets everywhere ─────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  .toolbar-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .btn-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* Slightly larger calendar cells for tap */
+  .calendar-cell {
+    border-radius: var(--radius-sm);
+  }
+
+  /* Remove hover-only effects on touch */
+  .entry-card:hover {
+    transform: none;
+  }
+
+  .entry-card:active {
+    transform: scale(0.99);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Show view arrow always on touch (no hover) */
+  .entry-card .view-arrow {
+    opacity: 0.6;
+    transform: translateX(0);
+  }
+
+  /* FAB always at bottom-right on touch devices */
+  .fab-btn {
+    right: 20px;
+    bottom: 24px;
+  }
+}
+
+/* ================================================================
+   MOBILE NOTCH & GESTURE NAVIGATION SUPPORT (SAFE AREA INSETS)
+   ================================================================ */
+@media (max-width: 768px) {
+  .app-header {
+    padding-top: calc(12px + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: 12px !important;
+    padding-left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+  }
+
+  .fab-btn {
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important;
+    right: calc(20px + env(safe-area-inset-right, 0px)) !important;
+  }
+
+  .drawer-panel,
+  .settings-panel {
+    padding-top: calc(1.5rem + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)) !important;
+    padding-left: calc(1.25rem + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(1.25rem + env(safe-area-inset-right, 0px)) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: 10px !important;
+    padding-left: calc(14px + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(14px + env(safe-area-inset-right, 0px)) !important;
+  }
+
+  .fab-btn {
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+    right: calc(16px + env(safe-area-inset-right, 0px)) !important;
+  }
+
+  .drawer-panel,
+  .settings-panel {
+    padding-top: calc(1.25rem + env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px)) !important;
+    padding-left: calc(1rem + env(safe-area-inset-left, 0px)) !important;
+    padding-right: calc(1rem + env(safe-area-inset-right, 0px)) !important;
+  }
+}
+
+/* ================================================================
+   CUSTOM RANGE SLIDERS FOR COLOR PICKER
+   ================================================================ */
+.custom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+  border-radius: var(--radius-full);
+}
+.custom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.custom-slider::-webkit-slider-thumb:active {
+  transform: scale(1.25);
+}
+.custom-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.custom-slider::-moz-range-thumb:active {
+  transform: scale(1.25);
 }
 

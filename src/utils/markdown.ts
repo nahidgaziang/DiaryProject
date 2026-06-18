@@ -153,8 +153,11 @@ function inlineMarkdown(text: string): string {
 export function stripMarkdown(text: string): string {
   if (!text) return '';
   
+  // Replace HTML entity spaces
+  let cleanText = text.replace(/&nbsp;/g, ' ');
+  
   // Strip HTML tags first
-  const cleanText = text.replace(/<[^>]*>/g, ' ');
+  cleanText = cleanText.replace(/<[^>]*>/g, ' ');
 
   return cleanText
     .replace(/^#{1,3}\s+/gm, '')          // Headings
